@@ -54,6 +54,11 @@ enum Command {
         #[command(subcommand)]
         command: GatewayCommand,
     },
+    /// Manage Codex app-server pending prompts.
+    Prompts {
+        #[command(subcommand)]
+        command: PromptsCommand,
+    },
     /// Manage Codex-native skills.
     Skill {
         #[command(subcommand)]
@@ -209,6 +214,31 @@ enum GatewayCommand {
         /// External gateway thread identifier.
         #[arg(long)]
         external_thread: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PromptsCommand {
+    /// List pending and resolved Codex prompts in a project.
+    List {
+        /// Project folder path.
+        project_path: PathBuf,
+    },
+    /// Show one Codex prompt.
+    Show {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Atelier prompt id.
+        prompt_id: String,
+    },
+    /// Record a response for one Codex prompt.
+    Respond {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Atelier prompt id.
+        prompt_id: String,
+        /// Decision to record.
+        decision: String,
     },
 }
 
@@ -388,6 +418,52 @@ fn main() -> Result<()> {
                 }
             }
         },
+        Command::Prompts { command } => match command {
+            PromptsCommand::List { project_path } => {
+                for (job_id, prompt) in list_prompts(&project_path)? {
+                    println!(
+                        "{}\t{:?}\t{}\t{}",
+                        prompt.id, prompt.status, prompt.summary, job_id
+                    );
+                }
+            }
+            PromptsCommand::Show {
+                project_path,
+                prompt_id,
+            } => {
+                let (_job_dir, prompt) = find_prompt(&project_path, &prompt_id)?;
+                println!("Prompt: {}", prompt.id);
+                println!("Status: {:?}", prompt.status);
+                println!("Method: {}", prompt.method);
+                println!("Summary: {}", prompt.summary);
+                if !prompt.available_decisions.is_empty() {
+                    println!(
+                        "Decision options: {}",
+                        prompt.available_decisions.join(", ")
+                    );
+                }
+            }
+            PromptsCommand::Respond {
+                project_path,
+                prompt_id,
+                decision,
+            } => {
+                let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
+                prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
+                let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
+                std::fs::write(
+                    prompt_path,
+                    serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
+                )?;
+                let responses_dir = job_dir.join("responses");
+                std::fs::create_dir_all(&responses_dir)?;
+                std::fs::write(
+                    responses_dir.join(format!("{}.json", prompt.id)),
+                    serde_json::to_string_pretty(&serde_json::json!({"decision": decision}))?,
+                )?;
+                println!("Recorded response {decision} for {prompt_id}");
+            }
+        },
         Command::Skill { command } => match command {
             SkillCommand::Add { command } => match command {
                 SkillAddCommand::Project {
@@ -518,6 +594,60 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn list_prompts(
+    project_path: &Path,
+) -> Result<Vec<(String, atelier_core::codex_app_server::PendingPrompt)>> {
+    let jobs_dir = project_path.join(".atelier/jobs");
+    let mut prompts = Vec::new();
+    if !jobs_dir.exists() {
+        return Ok(prompts);
+    }
+    for job_entry in std::fs::read_dir(jobs_dir).context("read jobs dir")? {
+        let job_dir = job_entry?.path();
+        let prompts_dir = job_dir.join("prompts");
+        if !prompts_dir.exists() {
+            continue;
+        }
+        let job_id = job_dir
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("unknown-job")
+            .to_string();
+        for prompt_entry in std::fs::read_dir(prompts_dir).context("read prompts dir")? {
+            let prompt_path = prompt_entry?.path();
+            if prompt_path.extension().and_then(|value| value.to_str()) != Some("json") {
+                continue;
+            }
+            let prompt = serde_json::from_str(
+                &std::fs::read_to_string(&prompt_path).context("read prompt file")?,
+            )
+            .context("parse prompt file")?;
+            prompts.push((job_id.clone(), prompt));
+        }
+    }
+    prompts.sort_by(|left, right| left.1.id.cmp(&right.1.id));
+    Ok(prompts)
+}
+
+fn find_prompt(
+    project_path: &Path,
+    prompt_id: &str,
+) -> Result<(PathBuf, atelier_core::codex_app_server::PendingPrompt)> {
+    let jobs_dir = project_path.join(".atelier/jobs");
+    for job_entry in std::fs::read_dir(jobs_dir).context("read jobs dir")? {
+        let job_dir = job_entry?.path();
+        let prompt_path = job_dir.join("prompts").join(format!("{prompt_id}.json"));
+        if prompt_path.exists() {
+            let prompt = serde_json::from_str(
+                &std::fs::read_to_string(&prompt_path).context("read prompt file")?,
+            )
+            .context("parse prompt file")?;
+            return Ok((job_dir, prompt));
+        }
+    }
+    anyhow::bail!("prompt not found: {prompt_id}")
 }
 
 fn build_context(person: &str, thread: &str, prompt: &str) -> Result<String> {
