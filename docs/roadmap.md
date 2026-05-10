@@ -115,6 +115,8 @@ Expected behavior:
 - [x] Add cross-project prompt inbox.
 - [x] Add project-scoped bulk recovery for idle-timeout and worker-lost jobs.
 - [x] Bootstrap an Atelier home workspace with starter Codex-native skills.
+- [x] Add generic local HTTP gateway with health/status/jobs/prompts/respond/message endpoints.
+- [x] Add gateway person bindings and external-thread routing for message events.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

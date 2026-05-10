@@ -252,14 +252,27 @@ telegram:<chat_id>:<message_thread_id> -> atelier-thread:<thread-id>
 
 If native topics are unavailable or unreliable, the Telegram adapter may fall back to reply-root threads or synthetic command-selected threads. The same Atelier thread model should also support future platforms such as Discord, Slack, CLI, and API clients.
 
-The initial CLI provides file-backed gateway binding primitives:
+The initial CLI provides file-backed gateway binding primitives and a generic local HTTP gateway:
 
 ```bash
-atelier gateway bind example-project --thread thread-abc --gateway telegram --external-thread chat-123:topic-456
-atelier gateway resolve example-project --gateway telegram --external-thread chat-123:topic-456
+atelier gateway bind example-project --thread thread-abc --gateway example-gateway --external-thread external-thread
+atelier gateway bind-person --gateway example-gateway --external-user external-user --person alice
+atelier gateway resolve example-project --gateway example-gateway --external-thread external-thread
+atelier gateway serve --listen 127.0.0.1:8787
 ```
 
-Bindings are stored in the Atelier thread folder's `gateway-bindings.toml` file. Platform adapters should build on this gateway-neutral binding layer rather than placing Telegram assumptions into the core thread model.
+Thread bindings are stored in the Atelier thread folder's `gateway-bindings.toml` file. Person bindings are stored in global Atelier state because they describe external identities, not project knowledge. Platform adapters should build on this gateway-neutral binding layer rather than placing Telegram assumptions into the core thread model.
+
+The generic HTTP gateway exposes JSON endpoints:
+
+- `GET /health`
+- `GET /status`
+- `GET /jobs`
+- `GET /prompts`
+- `POST /prompts/respond`
+- `POST /events/message`
+
+The gateway listens on localhost by default and is intended for local dogfooding until authentication and access control are added.
 
 A message resolves in this order:
 
