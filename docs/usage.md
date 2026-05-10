@@ -17,8 +17,9 @@ Key concepts:
 - **Home workspace:** global Atelier state. It stores person memory, project registry, gateway person bindings, and gateway audit logs.
 - **Person:** a human identity. Person memory is global and describes the person, not projects.
 - **Project:** a durable working folder. Project-specific state belongs in the project folder under `.atelier/` and Codex-native files such as `AGENTS.md`, `.agents/skills`, and `.codex/config.toml`.
-- **Thread:** one Atelier workstream inside a project. Gateway threads and Codex session lineage bind to Atelier threads.
+- **Thread:** one Atelier workstream inside a project. Gateway threads, Codex session lineage, and durable output events bind to Atelier threads.
 - **Job:** one Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project.
+- **Thread event:** an append-only event in `.atelier/threads/<thread-id>/events.jsonl`. CLI, API, and gateways should read this shared event stream instead of inventing separate delivery state.
 
 ## Walkthrough: create a hello-world project
 

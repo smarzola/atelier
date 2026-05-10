@@ -204,16 +204,20 @@ atelier resume [--thread <thread-id>] [--last | <session-id>]
 atelier continue [--thread <thread-id>] [--last | <session-id>] "prompt"
 ```
 
-Thread folders store bindings, summaries, jobs, and Codex session lineage:
+Thread folders store bindings, summaries, events, jobs, and Codex session lineage:
 
 ```text
 .atelier/threads/thread-abc/
   thread.toml
   summary.md
   gateway-bindings.toml
+  events.jsonl
+  delivery-cursors/
   codex-sessions.jsonl
   jobs/
 ```
+
+`events.jsonl` is the durable thread event stream used by CLI, API, and gateway surfaces. It is append-only and sequence-numbered so clients can read from an `after` cursor and avoid replaying old output. Job folders keep source artifacts such as `status.json`, `protocol.jsonl`, and `result.md`; thread events are the shared delivery/index layer over those artifacts.
 
 Atelier job folders should store pointers to Codex session IDs when available:
 
