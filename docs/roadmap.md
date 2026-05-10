@@ -100,7 +100,9 @@ Expected behavior:
 - [x] Pass Codex run policy choices explicitly at invocation time: approval policy, sandbox, model, and search.
 - [x] Support local interactive Codex runs so prompts and approvals are visible/respondable in the attached terminal.
 - [x] Identify Codex app-server as the structured prompt-relay substrate for managed/gateway runs.
-- [ ] Implement Codex app-server managed runs and pending prompt state.
+- [x] Implement initial Codex app-server managed runs and pending prompt state.
+- [x] Add local prompt list/show/respond commands for managed-run prompt records.
+- [ ] Keep Codex app-server workers alive so prompt responses resume the running Codex turn.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

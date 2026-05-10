@@ -103,6 +103,8 @@ When Codex needs user input, it sends a server-initiated JSON-RPC request. Ateli
 
 The gateway response becomes the JSON-RPC response to that exact request id. `serverRequest/resolved` and final item/turn notifications close the pending prompt.
 
+The current managed CLI slice can start app-server, record protocol JSONL, persist the first pending prompt, and record local prompt responses. The next daemon/worker slice must keep the app-server process alive so `prompts respond` can resume the running Codex turn instead of only recording the intended response.
+
 A terminal passthrough mode can remain useful for local human work, but it is not the managed prompt-relay architecture.
 
 ## Doctor checks
