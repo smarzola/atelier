@@ -112,21 +112,22 @@ atelier work hello-world \
 
 The dry-run is intentionally daemon-free. It records a dry-run job and prints the Codex invocation and injected person/thread context.
 
-### 6. Run work from the CLI
+### 6. Send work into the thread from the CLI
 
 ```bash
-atelier work hello-world \
+atelier thread send hello-world \
   --thread "$THREAD" \
   --as alice \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-Atelier submits the job to the daemon. Inspect it from the CLI:
+`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand, but thread-native send/follow is the preferred ongoing workflow. Inspect it from the CLI:
 
 ```bash
 atelier jobs list hello-world
 atelier jobs show hello-world <job-id>
 atelier prompts inbox
+atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
 If Codex needs approval, the job becomes `waiting-for-prompt`. While dogfooding this flow, Codex asked for file-change approval before writing `HELLO.md`.

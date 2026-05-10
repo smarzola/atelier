@@ -434,6 +434,36 @@ enum ThreadCommand {
         #[arg(long)]
         porcelain: bool,
     },
+    /// Send a message into an Atelier thread through the daemon.
+    Send {
+        /// Project folder path or registered project alias.
+        project_path: PathBuf,
+        /// Atelier thread id.
+        #[arg(long)]
+        thread: String,
+        /// Current person id/name.
+        #[arg(long = "as")]
+        person: String,
+        /// Daemon HTTP endpoint for managed work submission.
+        #[arg(long)]
+        daemon_url: Option<String>,
+        /// Terminate an idle managed worker after this many seconds.
+        #[arg(long, default_value_t = 300)]
+        idle_timeout_seconds: u64,
+        /// Message text.
+        prompt: String,
+    },
+    /// Print events from an Atelier thread.
+    Follow {
+        /// Project folder path or registered project alias.
+        project_path: PathBuf,
+        /// Atelier thread id.
+        #[arg(long)]
+        thread: String,
+        /// Only show events after this sequence number.
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -509,6 +539,39 @@ fn main() -> Result<()> {
                     println!("{}", thread.id);
                 } else {
                     println!("Created thread '{}' ({})", thread.title, thread.id);
+                }
+            }
+            ThreadCommand::Send {
+                project_path,
+                thread,
+                person,
+                daemon_url,
+                idle_timeout_seconds,
+                prompt,
+            } => {
+                let project_arg = project_path.to_string_lossy().to_string();
+                let response = submit_managed_work_to_daemon(
+                    &daemon_url.unwrap_or_else(default_daemon_url),
+                    &project_arg,
+                    &thread,
+                    &person,
+                    &prompt,
+                    idle_timeout_seconds,
+                )?;
+                println!("Status: started");
+                println!("Job: {}", response.job_id);
+                println!("Job directory: {}", response.job_dir.display());
+            }
+            ThreadCommand::Follow {
+                project_path,
+                thread,
+                after,
+            } => {
+                let project_path = resolve_project_arg(&project_path)?;
+                for event in
+                    atelier_core::thread_events::read_thread_events(&project_path, &thread, after)?
+                {
+                    println!("{}\t{}\t{}", event.sequence, event.kind, event.payload);
                 }
             }
         },
