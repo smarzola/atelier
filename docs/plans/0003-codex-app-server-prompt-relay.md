@@ -1,4 +1,4 @@
-# Plan 0002: Codex app-server prompt relay
+# Plan 0003: Codex app-server prompt relay
 
 ## Goal
 

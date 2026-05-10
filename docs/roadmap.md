@@ -8,6 +8,9 @@
 - [x] Record context injection decision.
 - [x] Create initial public GitHub repository.
 - [x] Plan the Atelier home skills pack: `docs/plans/0001-home-skills-pack.md`.
+- [x] Plan the Rust CLI vertical slice: `docs/plans/0002-rust-cli-vertical-slice.md`.
+- [x] Plan Codex app-server prompt relay: `docs/plans/0003-codex-app-server-prompt-relay.md`.
+- [x] Plan the generic HTTP gateway: `docs/plans/0004-generic-http-gateway.md`.
 - [x] Document external Codex runtime and CI strategy: `docs/codex-runtime.md`.
 - [x] Record Codex external runtime decision: `docs/decisions/0004-codex-external-runtime.md`.
 

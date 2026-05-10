@@ -1,4 +1,4 @@
-# Generic HTTP Gateway Implementation Plan
+# Plan 0004: Generic HTTP Gateway Implementation Plan
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
