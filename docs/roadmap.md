@@ -6,7 +6,7 @@ Atelier has entered alpha. The core local CLI, daemon-hosted gateway, daemon-sub
 
 Next alpha work focuses on hardening the daemonized runtime and release readiness:
 
-- [x] Linux and macOS binary builds.
+- [x] Release binaries for macOS Apple Silicon, Linux ARM64, and Linux x86_64.
 - [x] GitHub Release automation.
 - [x] Installation docs for released binaries.
 - [x] Daemon command and daemon-hosted HTTP gateway.
@@ -153,7 +153,7 @@ Expected behavior:
 - [ ] Prompt/completion notifications from daemon to gateways.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
-- [x] Linux and macOS packaging workflow.
+- [x] Packaging workflow for macOS Apple Silicon, Linux ARM64, and Linux x86_64.
 - [ ] Documentation site.
 - [x] CI and release automation.
 - [x] Publish alpha README quickstart and usage guide.
