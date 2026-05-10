@@ -24,6 +24,11 @@ enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Manage the Atelier home workspace.
+    Home {
+        #[command(subcommand)]
+        command: HomeCommand,
+    },
     /// Manage the global project registry.
     Projects {
         #[command(subcommand)]
@@ -173,6 +178,15 @@ enum ProjectCommand {
         /// Stable project name.
         #[arg(long)]
         name: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum HomeCommand {
+    /// Initialize the Atelier home workspace.
+    Init {
+        /// Home workspace folder path.
+        path: PathBuf,
     },
 }
 
@@ -386,6 +400,12 @@ fn main() -> Result<()> {
                     name,
                     path.display()
                 );
+            }
+        },
+        Command::Home { command } => match command {
+            HomeCommand::Init { path } => {
+                init_home_workspace(&path)?;
+                println!("Initialized Atelier home at {}", path.display());
             }
         },
         Command::Projects { command } => match command {
@@ -748,6 +768,37 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn init_home_workspace(path: &Path) -> Result<()> {
+    atelier_core::project::init_project(path, "home")?;
+    let skills_dir = path.join(".agents/skills");
+    std::fs::create_dir_all(&skills_dir).context("create home skills directory")?;
+    write_home_skill(
+        &skills_dir.join("route-project/SKILL.md"),
+        "route-project",
+        "Route requests from the home workspace to the right Atelier project.",
+    )?;
+    write_home_skill(
+        &skills_dir.join("inspect-runtime/SKILL.md"),
+        "inspect-runtime",
+        "Inspect Atelier jobs, prompts, status, and recoverable work.",
+    )?;
+    atelier_core::registry::add_project("home", path)?;
+    Ok(())
+}
+
+fn write_home_skill(path: &Path, name: &str, description: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).context("create home skill directory")?;
+    }
+    std::fs::write(
+        path,
+        format!(
+            "---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n\n{description}\n\nUse project files as the source of truth. Person memory belongs outside projects.\n"
+        ),
+    )
+    .context("write home skill")
 }
 
 fn print_prompt_inbox() -> Result<()> {
