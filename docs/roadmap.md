@@ -6,7 +6,7 @@
 - [x] Record core principles.
 - [x] Record Codex runtime boundary decision.
 - [x] Record context injection decision.
-- [ ] Create initial public GitHub repository.
+- [x] Create initial public GitHub repository.
 
 ## Phase 1: Minimal local CLI
 
@@ -19,9 +19,11 @@ atelier init [path]
 atelier projects list
 atelier projects add <name> <path>
 atelier work <project> "prompt"
+atelier threads list <project>
+atelier thread new <project> "Release preparation"
 atelier sessions <project>
-atelier resume <project> --last
-atelier continue <project> --last "prompt"
+atelier resume <project> --thread <thread-id> --last
+atelier continue <project> --thread <thread-id> --last "prompt"
 ```
 
 Expected behavior:
@@ -29,8 +31,9 @@ Expected behavior:
 - project registry stored in `~/.atelier/registry.toml`;
 - project-local `.atelier/` created explicitly;
 - Codex invoked in the project root;
+- thread folder created for each ongoing workstream;
 - job folder created for each Atelier-launched run;
-- Codex session IDs recorded when available;
+- Codex session IDs recorded as thread lineage when available;
 - no hidden Codex config mutation.
 
 ## Phase 2: Identity and person memory
@@ -59,10 +62,12 @@ Possible capabilities:
 
 - Telegram adapter first, or generic webhook first;
 - map gateway identities to people;
+- bind Telegram topics, reply roots, or synthetic selections to Atelier threads;
 - route messages to home or named projects;
 - create background jobs;
 - send completion notifications;
-- expose session list/resume commands.
+- expose thread, session list, and resume commands;
+- default to single-writer concurrency per project.
 
 ## Phase 4: Codex-native capability management
 

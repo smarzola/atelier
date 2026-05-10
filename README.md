@@ -43,11 +43,16 @@ Autonomous agents should not be organized primarily around ephemeral chat sessio
    - If Codex already supports a capability, Atelier should not build an overlapping tool.
    - Users can add capabilities through Codex-native mechanisms such as MCP, skills, and project instructions.
 
-9. **File-first and inspectable**
+9. **Threads bind gateways to workstreams**
+   - An Atelier thread is one ongoing workstream in a project or home workspace.
+   - Telegram topics, reply roots, synthetic chat selections, CLI sessions, and Codex session lineage attach to Atelier threads.
+   - Multiple threads may exist in one project, with conservative write concurrency by default.
+
+10. **File-first and inspectable**
    - Prefer readable files and folders over opaque databases for project state.
    - Use databases only for indexes, locks, gateway bookkeeping, or performance.
 
-10. **Public examples use generic identities**
+11. **Public examples use generic identities**
     - Documentation, tests, examples, and fixtures use generic names such as Alice, Bob, and Carol.
     - Do not include real personal names, live identifiers, private paths, tokens, or family details in the public repository.
 
@@ -80,6 +85,7 @@ example-project/
     inbox/
     journal.md
     memory/
+    threads/
     jobs/
     sessions/
     artifacts/
@@ -98,6 +104,8 @@ Gateway / CLI / API
         +--> identity resolver --> person memory
         |
         +--> project router ----> project folder
+        |
+        +--> thread resolver ---> .atelier/threads/<thread-id>/
         |
         +--> job manager -------> .atelier/jobs/<job-id>/
         |

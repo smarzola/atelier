@@ -110,13 +110,27 @@ It should support:
 
 Atelier should lean on Codex's native `resume` and `exec resume` functionality rather than reimplementing transcripts.
 
-## 9. File-first, inspectable state
+## 9. Threads bind gateways to workstreams
+
+Atelier threads are first-class. A thread is one ongoing workstream in a project or home workspace. Gateway topics, reply threads, synthetic chat selections, CLI sessions, and Codex session lineage attach to Atelier threads.
+
+This allows:
+
+- multiple parallel sessions in one project;
+- Telegram forum-style topics where available;
+- group chats where several people share the same project thread;
+- future Discord, Slack, CLI, or API bindings without changing the core model.
+
+Person identity and thread identity are resolved separately. In shared threads, inject only the current speaker's person memory unless another participant's memory is explicitly marked shared or permissioned.
+
+## 10. File-first, inspectable state
 
 Project-local runtime state should be readable and auditable:
 
 ```text
 .atelier/
   inbox/
+  threads/
   jobs/
   sessions/
   memory/
@@ -126,7 +140,7 @@ Project-local runtime state should be readable and auditable:
 
 Databases may be used for indexes, locks, gateway bookkeeping, or performance, but they should not be the only place where durable project meaning lives.
 
-## 10. Public hygiene
+## 11. Public hygiene
 
 Atelier is open source. Public docs, examples, tests, and fixtures must use generic names and identifiers.
 
