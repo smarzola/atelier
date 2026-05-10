@@ -33,9 +33,9 @@ Expected behavior:
 
 - project registry stored in `~/.atelier/registry.toml`;
 - project-local `.atelier/` created explicitly;
-- Codex invoked in the project root;
+- Codex invoked in the project root via `codex exec --cd <project> <context>`;
 - thread folder created for each ongoing workstream;
-- job folder created for each Atelier-launched run;
+- job folder created for each Atelier-launched run with request, context, status, stdout result, and stderr log;
 - Codex session IDs recorded as thread lineage when available;
 - no hidden Codex config mutation;
 - `atelier doctor` reports Codex runtime readiness and optional project scaffold health.

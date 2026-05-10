@@ -149,14 +149,16 @@ fn main() -> Result<()> {
             let context = format!(
                 "<atelier-context>\nCurrent person: {person}\nThread: {thread}\nBoundary:\n- This context is about the current invocation.\n- Project facts belong in project files.\n</atelier-context>\n\n<user-task>\n{prompt}\n</user-task>\n"
             );
-            let job = atelier_core::job::create_dry_run_job(
+            let job = atelier_core::job::create_job(
                 &project_path,
                 &thread,
                 &person,
                 &prompt,
                 &context,
+                dry_run,
             )?;
-            let invocation = atelier_core::codex::CodexDryRun::new(&project_path, context.clone());
+            let invocation =
+                atelier_core::codex::CodexInvocation::new(&project_path, context.clone());
 
             if dry_run {
                 println!("Job: {}", job.id);
@@ -164,7 +166,25 @@ fn main() -> Result<()> {
                 println!("Would run: {}", invocation.display_command());
                 println!("\n{}", invocation.prompt);
             } else {
-                println!("real Codex execution is not implemented yet; re-run with --dry-run");
+                let output = invocation.run()?;
+                std::fs::write(job.dir.join("result.md"), &output.stdout)?;
+                std::fs::write(job.dir.join("stderr.log"), &output.stderr)?;
+                atelier_core::job::complete_job(&job, &thread, &person, output.success)?;
+                println!("Job: {}", job.id);
+                println!("Job directory: {}", job.dir.display());
+                println!(
+                    "Status: {}",
+                    if output.success {
+                        "succeeded"
+                    } else {
+                        "failed"
+                    }
+                );
+                print!("{}", output.stdout);
+                if !output.success {
+                    eprint!("{}", output.stderr);
+                    std::process::exit(1);
+                }
             }
         }
     }

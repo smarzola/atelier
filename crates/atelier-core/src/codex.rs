@@ -1,13 +1,23 @@
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use anyhow::{Context, Result};
 
 #[derive(Debug, Clone)]
-pub struct CodexDryRun {
+pub struct CodexInvocation {
     pub binary: String,
     pub project_path: PathBuf,
     pub prompt: String,
 }
 
-impl CodexDryRun {
+#[derive(Debug, Clone)]
+pub struct CodexRunOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub success: bool,
+}
+
+impl CodexInvocation {
     pub fn new(project_path: &Path, prompt: String) -> Self {
         Self {
             binary: "codex".to_string(),
@@ -23,4 +33,21 @@ impl CodexDryRun {
             self.project_path.display()
         )
     }
+
+    pub fn run(&self) -> Result<CodexRunOutput> {
+        let output = Command::new(&self.binary)
+            .args(["exec", "--cd"])
+            .arg(&self.project_path)
+            .arg(&self.prompt)
+            .output()
+            .with_context(|| format!("run {}", self.display_command()))?;
+
+        Ok(CodexRunOutput {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            success: output.status.success(),
+        })
+    }
 }
+
+pub type CodexDryRun = CodexInvocation;

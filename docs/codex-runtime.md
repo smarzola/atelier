@@ -59,15 +59,21 @@ A local override may point at a custom binary:
 ATELIER_CODEX=/path/to/codex atelier work example-project "..."
 ```
 
-Atelier should record Codex metadata for every real job:
+Atelier creates a job directory for every real Codex run. The initial implementation invokes:
 
-```json
-{
-  "codex_binary": "/usr/local/bin/codex",
-  "codex_version": "0.130.0",
-  "invocation": ["codex", "exec", "--cd", "/home/example/project"]
-}
+```bash
+codex exec --cd <project> "<atelier-context>...<user-task>..."
 ```
+
+and records:
+
+- `request.md` — original user task;
+- `context.md` — explicit Atelier context passed to Codex;
+- `status.json` — current job status;
+- `result.md` — Codex stdout;
+- `stderr.log` — Codex stderr.
+
+Future versions should also record richer Codex metadata, such as binary path, version, full invocation, exit code, and native Codex session identifiers when available.
 
 ## Doctor checks
 
