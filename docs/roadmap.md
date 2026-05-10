@@ -106,6 +106,7 @@ Expected behavior:
 - [x] List multiple managed jobs in one project.
 - [x] Recover idle managed jobs from saved job context.
 - [x] Reconcile running managed jobs whose worker process has disappeared.
+- [x] Record managed Codex app-server thread/session metadata in Atelier thread lineage.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

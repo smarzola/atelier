@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +67,27 @@ pub fn codex_session_lineage(project_path: &Path, thread_id: &str) -> Result<Str
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
     }
+}
+
+pub fn append_codex_session_lineage(
+    project_path: &Path,
+    thread_id: &str,
+    entry: Value,
+) -> Result<()> {
+    let path = thread_dir(project_path, thread_id).join("codex-sessions.jsonl");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).context("create thread directory")?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("open {}", path.display()))?;
+    serde_json::to_writer(&mut file, &entry).context("write codex session lineage")?;
+    use std::io::Write;
+    file.write_all(b"\n")
+        .context("terminate codex session lineage")?;
+    Ok(())
 }
 
 pub fn thread_dir(project_path: &Path, thread_id: &str) -> PathBuf {

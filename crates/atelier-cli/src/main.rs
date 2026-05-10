@@ -934,7 +934,22 @@ fn run_managed_worker(
         &mut stdin,
         serde_json::json!({"id":2,"method":"thread/start","params":{"cwd":project_path,"approvalPolicy":"on-request","sandbox":"workspace-write"}}),
     )?;
-    let codex_thread_id = read_until_response_thread(&mut reader, &mut protocol, 2)?;
+    let thread_start = read_until_response_thread(&mut reader, &mut protocol, 2)?;
+    let codex_thread_id = thread_start
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .map(ToString::to_string)
+        .context("thread/start response missing thread id")?;
+    atelier_core::thread::append_codex_session_lineage(
+        project_path,
+        thread,
+        serde_json::json!({
+            "kind": "managed-app-server-thread",
+            "job_id": job_dir.file_name().and_then(|value| value.to_str()).unwrap_or("unknown-job"),
+            "codex_thread_id": codex_thread_id,
+            "session_path": thread_start.get("path").and_then(serde_json::Value::as_str),
+        }),
+    )?;
     send_json(
         &mut stdin,
         serde_json::json!({"id":3,"method":"turn/start","params":{"threadId":codex_thread_id,"input":[{"type":"text","text":context,"textElements":[]}]}}),
@@ -1068,7 +1083,7 @@ fn read_until_response_thread(
     reader: &mut BufReader<std::process::ChildStdout>,
     protocol: &mut std::fs::File,
     response_id: i64,
-) -> Result<String> {
+) -> Result<serde_json::Value> {
     let mut line = String::new();
     loop {
         line.clear();
@@ -1085,10 +1100,11 @@ fn read_until_response_thread(
             .ok()
             .unwrap_or_default();
         if message.get("id").and_then(serde_json::Value::as_i64) == Some(response_id) {
-            return message["result"]["thread"]["id"]
-                .as_str()
-                .map(ToString::to_string)
-                .context("thread/start response missing thread id");
+            return message
+                .get("result")
+                .and_then(|result| result.get("thread"))
+                .cloned()
+                .context("thread/start response missing thread metadata");
         }
     }
 }
