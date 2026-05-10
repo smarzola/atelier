@@ -43,6 +43,23 @@ pub fn list_projects() -> Result<Vec<RegisteredProject>> {
     Ok(load_registry()?.projects)
 }
 
+pub fn resolve_project_path(project: &str) -> Result<PathBuf> {
+    let path = PathBuf::from(project);
+    if path.components().count() == 1 {
+        if let Some(registered) = load_registry()?
+            .projects
+            .into_iter()
+            .find(|registered| registered.name == project)
+        {
+            return Ok(registered.path);
+        }
+    }
+    if path.exists() || path.components().count() > 1 {
+        return Ok(path);
+    }
+    anyhow::bail!("project alias not found: {project}")
+}
+
 fn registry_path() -> PathBuf {
     atelier_home().join("registry.toml")
 }

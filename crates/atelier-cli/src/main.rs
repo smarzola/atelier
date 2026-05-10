@@ -476,6 +476,7 @@ fn main() -> Result<()> {
         },
         Command::Prompts { command } => match command {
             PromptsCommand::List { project_path } => {
+                let project_path = resolve_project_arg(&project_path)?;
                 for (job_id, prompt) in list_prompts(&project_path)? {
                     println!(
                         "{}\t{:?}\t{}\t{}",
@@ -487,6 +488,7 @@ fn main() -> Result<()> {
                 project_path,
                 prompt_id,
             } => {
+                let project_path = resolve_project_arg(&project_path)?;
                 let (_job_dir, prompt) = find_prompt(&project_path, &prompt_id)?;
                 println!("Prompt: {}", prompt.id);
                 println!("Status: {:?}", prompt.status);
@@ -506,6 +508,7 @@ fn main() -> Result<()> {
                 json,
                 decision,
             } => {
+                let project_path = resolve_project_arg(&project_path)?;
                 let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
                 let response = build_prompt_response(&prompt, &decision, text, json)?;
                 prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
@@ -525,6 +528,7 @@ fn main() -> Result<()> {
         },
         Command::Jobs { command } => match command {
             JobsCommand::List { project_path } => {
+                let project_path = resolve_project_arg(&project_path)?;
                 for status in list_jobs(&project_path)? {
                     println!("{}\t{}\t{}", status.id, status.status, status.thread_id);
                 }
@@ -533,6 +537,7 @@ fn main() -> Result<()> {
                 project_path,
                 job_id,
             } => {
+                let project_path = resolve_project_arg(&project_path)?;
                 show_job(&project_path, &job_id)?;
             }
             JobsCommand::Recover {
@@ -540,6 +545,7 @@ fn main() -> Result<()> {
                 job_id,
                 idle_timeout_seconds,
             } => {
+                let project_path = resolve_project_arg(&project_path)?;
                 let job_dir = project_path.join(".atelier/jobs").join(&job_id);
                 let status: atelier_core::job::JobStatus = serde_json::from_str(
                     &std::fs::read_to_string(job_dir.join("status.json"))
@@ -605,6 +611,7 @@ fn main() -> Result<()> {
             search,
             prompt,
         } => {
+            let project_path = resolve_project_arg(&project_path)?;
             let policy = atelier_core::codex::CodexPolicy {
                 approval_policy,
                 sandbox,
@@ -661,6 +668,7 @@ fn main() -> Result<()> {
             model,
             prompt,
         } => {
+            let project_path = resolve_project_arg(&project_path)?;
             let policy = atelier_core::codex::CodexPolicy {
                 approval_policy,
                 sandbox: None,
@@ -692,6 +700,7 @@ fn main() -> Result<()> {
             project_path,
             thread,
         } => {
+            let project_path = resolve_project_arg(&project_path)?;
             print!(
                 "{}",
                 atelier_core::thread::codex_session_lineage(&project_path, &thread)?
@@ -717,6 +726,10 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_project_arg(project: &Path) -> Result<PathBuf> {
+    atelier_core::registry::resolve_project_path(project.to_string_lossy().as_ref())
 }
 
 fn show_job(project_path: &Path, job_id: &str) -> Result<()> {
