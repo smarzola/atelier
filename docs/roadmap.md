@@ -105,6 +105,7 @@ Expected behavior:
 - [x] Keep Codex app-server workers alive so prompt responses resume the running Codex turn.
 - [x] List multiple managed jobs in one project.
 - [x] Recover idle managed jobs from saved job context.
+- [x] Reconcile running managed jobs whose worker process has disappeared.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

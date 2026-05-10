@@ -701,17 +701,56 @@ fn list_jobs(project_path: &Path) -> Result<Vec<atelier_core::job::JobStatus>> {
         return Ok(jobs);
     }
     for job_entry in std::fs::read_dir(jobs_dir).context("read jobs dir")? {
-        let status_path = job_entry?.path().join("status.json");
+        let job_dir = job_entry?.path();
+        let status_path = job_dir.join("status.json");
         if status_path.exists() {
-            let status = serde_json::from_str(
+            let mut status: atelier_core::job::JobStatus = serde_json::from_str(
                 &std::fs::read_to_string(&status_path).context("read job status")?,
             )
             .context("parse job status")?;
+            reconcile_worker_status(&job_dir, &mut status)?;
             jobs.push(status);
         }
     }
     jobs.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(jobs)
+}
+
+fn reconcile_worker_status(
+    job_dir: &Path,
+    status: &mut atelier_core::job::JobStatus,
+) -> Result<()> {
+    if status.status != "running" && status.status != "waiting-for-prompt" {
+        return Ok(());
+    }
+    let worker_path = job_dir.join("worker.json");
+    if !worker_path.exists() {
+        return Ok(());
+    }
+    let worker: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&worker_path).context("read worker metadata")?,
+    )
+    .context("parse worker metadata")?;
+    let Some(pid) = worker.get("pid").and_then(serde_json::Value::as_u64) else {
+        return Ok(());
+    };
+    if !process_is_alive(pid) {
+        status.status = "worker-lost".to_string();
+        atelier_core::job::update_status(job_dir, status.clone())?;
+    }
+    Ok(())
+}
+
+fn process_is_alive(pid: u64) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::path::Path::new("/proc").join(pid.to_string()).exists()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        true
+    }
 }
 
 fn list_prompts(
