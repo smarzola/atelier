@@ -117,6 +117,7 @@ Expected behavior:
 - [x] Bootstrap an Atelier home workspace with starter Codex-native skills.
 - [x] Add generic local HTTP gateway with health/status/jobs/prompts/respond/message endpoints.
 - [x] Add gateway person bindings and external-thread routing for message events.
+- [x] Default the HTTP gateway to loopback-only and support bearer-token authentication for adapter/reverse-proxy use.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

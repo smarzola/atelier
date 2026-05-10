@@ -236,6 +236,12 @@ enum GatewayCommand {
         /// Listen address, for example 127.0.0.1:8787.
         #[arg(long, default_value = "127.0.0.1:8787")]
         listen: String,
+        /// Allow listening on non-loopback addresses.
+        #[arg(long)]
+        allow_non_loopback: bool,
+        /// Require Authorization: Bearer <token> using this environment variable.
+        #[arg(long)]
+        auth_token_env: Option<String>,
     },
     /// Bind an external gateway user to an Atelier person.
     BindPerson {
@@ -490,8 +496,12 @@ fn main() -> Result<()> {
             }
         }
         Command::Gateway { command } => match command {
-            GatewayCommand::Serve { listen } => {
-                serve_gateway(&listen)?;
+            GatewayCommand::Serve {
+                listen,
+                allow_non_loopback,
+                auth_token_env,
+            } => {
+                serve_gateway(&listen, allow_non_loopback, auth_token_env)?;
             }
             GatewayCommand::BindPerson {
                 gateway,
@@ -929,12 +939,31 @@ struct GatewayPromptResponseRequest {
     json: Option<String>,
 }
 
-fn serve_gateway(listen: &str) -> Result<()> {
+#[derive(Debug, Clone)]
+struct GatewayAuth {
+    bearer_token: Option<String>,
+}
+
+fn serve_gateway(
+    listen: &str,
+    allow_non_loopback: bool,
+    auth_token_env: Option<String>,
+) -> Result<()> {
+    validate_gateway_listen_address(listen, allow_non_loopback)?;
+    let auth = GatewayAuth {
+        bearer_token: match auth_token_env {
+            Some(name) => Some(
+                std::env::var(&name)
+                    .with_context(|| format!("auth token env var is not set: {name}"))?,
+            ),
+            None => None,
+        },
+    };
     let listener = TcpListener::bind(listen).with_context(|| format!("bind gateway {listen}"))?;
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                if let Err(error) = handle_gateway_stream(&mut stream) {
+                if let Err(error) = handle_gateway_stream(&mut stream, &auth) {
                     let _ = write_json_response(
                         &mut stream,
                         500,
@@ -948,8 +977,30 @@ fn serve_gateway(listen: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_gateway_stream(stream: &mut TcpStream) -> Result<()> {
-    let (method, path, body) = read_http_request(stream)?;
+fn validate_gateway_listen_address(listen: &str, allow_non_loopback: bool) -> Result<()> {
+    if allow_non_loopback {
+        return Ok(());
+    }
+    let addr: std::net::SocketAddr = listen
+        .parse()
+        .with_context(|| format!("parse listen address {listen}"))?;
+    if !addr.ip().is_loopback() {
+        anyhow::bail!(
+            "refusing to listen on non-loopback address {listen}; pass --allow-non-loopback to opt in"
+        );
+    }
+    Ok(())
+}
+
+fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<()> {
+    let request = read_http_request(stream)?;
+    if !gateway_request_is_authorized(&request, auth) {
+        write_json_response(stream, 401, serde_json::json!({"error":"unauthorized"}))?;
+        return Ok(());
+    }
+    let method = request.method;
+    let path = request.path;
+    let body = request.body;
     let response = match (method.as_str(), path.as_str()) {
         ("GET", "/health") => serde_json::json!({"status":"ok"}),
         ("GET", "/status") => gateway_status_json()?,
@@ -1025,7 +1076,22 @@ fn resolve_gateway_project_thread(
     anyhow::bail!("no thread binding found for gateway thread")
 }
 
-fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, String)> {
+#[derive(Debug)]
+struct HttpRequest {
+    method: String,
+    path: String,
+    authorization: Option<String>,
+    body: String,
+}
+
+fn gateway_request_is_authorized(request: &HttpRequest, auth: &GatewayAuth) -> bool {
+    let Some(expected_token) = &auth.bearer_token else {
+        return true;
+    };
+    request.authorization.as_deref() == Some(&format!("Bearer {expected_token}"))
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest> {
     stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
     let mut buffer = Vec::new();
     let mut temp = [0_u8; 1024];
@@ -1066,6 +1132,14 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, String)>
             }
         })
         .unwrap_or(0);
+    let authorization = headers.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        if name.eq_ignore_ascii_case("authorization") {
+            Some(value.trim().to_string())
+        } else {
+            None
+        }
+    });
     while buffer.len() < header_end + content_length {
         let bytes = stream.read(&mut temp).context("read http body")?;
         if bytes == 0 {
@@ -1075,7 +1149,12 @@ fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, String)>
     }
     let body =
         String::from_utf8_lossy(&buffer[header_end..header_end + content_length]).to_string();
-    Ok((method, path, body))
+    Ok(HttpRequest {
+        method,
+        path,
+        authorization,
+        body,
+    })
 }
 
 fn write_json_response(
@@ -1085,6 +1164,8 @@ fn write_json_response(
 ) -> Result<()> {
     let reason = if status == 200 {
         "OK"
+    } else if status == 401 {
+        "Unauthorized"
     } else if status == 404 {
         "Not Found"
     } else {

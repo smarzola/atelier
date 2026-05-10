@@ -115,7 +115,7 @@ Gateway / CLI / API
 
 ## Status
 
-Early implementation phase. The local CLI can initialize home/project workspaces and threads, resolve registered project aliases, inject person-scoped context into Codex work, run managed Codex app-server jobs, relay structured prompts through durable prompt files, show a global status dashboard, inspect jobs, recover idle/lost jobs from saved context, reconcile lost workers, list cross-project prompt inboxes, preserve Codex app-server thread lineage, and run a generic local HTTP gateway for platform-neutral message/prompt routing.
+Early implementation phase. The local CLI can initialize home/project workspaces and threads, resolve registered project aliases, inject person-scoped context into Codex work, run managed Codex app-server jobs, relay structured prompts through durable prompt files, show a global status dashboard, inspect jobs, recover idle/lost jobs from saved context, reconcile lost workers, list cross-project prompt inboxes, preserve Codex app-server thread lineage, and run a generic local HTTP gateway for platform-neutral message/prompt routing. The gateway defaults to loopback-only listening and can require a bearer token via `--auth-token-env` for local reverse-proxy or adapter use.
 
 ## Runtime requirements
 

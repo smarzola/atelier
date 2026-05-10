@@ -131,6 +131,62 @@ fn gateway_message_event_resolves_bound_thread_and_person() {
     let _ = server.kill();
 }
 
+#[test]
+fn gateway_rejects_non_loopback_listen_without_explicit_opt_in() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args(["gateway", "serve", "--listen", "0.0.0.0:0"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "refusing to listen on non-loopback address",
+        ));
+}
+
+#[test]
+fn gateway_requires_bearer_token_when_auth_token_env_is_set() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+
+    let port = free_port();
+    let mut server =
+        spawn_gateway_with_auth(&temp, port, "ATELIER_TEST_GATEWAY_TOKEN", "secret-token");
+    wait_for_health(port);
+
+    let unauthenticated = get_status_and_json(port, "/status", None);
+    assert_eq!(unauthenticated.0, 401);
+    assert_eq!(unauthenticated.1["error"], "unauthorized");
+
+    let authenticated = get_status_and_json(port, "/status", Some("secret-token"));
+    assert_eq!(authenticated.0, 200);
+    assert_eq!(authenticated.1["projects"], 1);
+
+    let _ = server.kill();
+}
+
+#[test]
+fn gateway_fails_fast_when_auth_token_env_is_missing() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .env_remove("ATELIER_MISSING_GATEWAY_TOKEN")
+        .args([
+            "gateway",
+            "serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--auth-token-env",
+            "ATELIER_MISSING_GATEWAY_TOKEN",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("auth token env var is not set"));
+}
+
 fn wait_for_job_success(project: &std::path::Path, job_id: &str) {
     let status_path = project
         .join(".atelier/jobs")
@@ -263,11 +319,34 @@ fn spawn_gateway(temp: &tempfile::TempDir, port: u16) -> std::process::Child {
     spawn_gateway_with_path(temp, port, std::path::Path::new(""))
 }
 
+fn spawn_gateway_with_auth(
+    temp: &tempfile::TempDir,
+    port: u16,
+    token_env: &str,
+    token: &str,
+) -> std::process::Child {
+    let mut command = gateway_command(temp, port);
+    command
+        .env(token_env, token)
+        .arg("--auth-token-env")
+        .arg(token_env)
+        .spawn()
+        .expect("spawn gateway")
+}
+
 fn spawn_gateway_with_path(
     temp: &tempfile::TempDir,
     port: u16,
     fake_bin: &std::path::Path,
 ) -> std::process::Child {
+    let mut command = gateway_command(temp, port);
+    if !fake_bin.as_os_str().is_empty() {
+        command.env("PATH", prepend_to_path(fake_bin));
+    }
+    command.spawn().expect("spawn gateway")
+}
+
+fn gateway_command(temp: &tempfile::TempDir, port: u16) -> Command {
     let mut command = Command::cargo_bin("atelier").expect("atelier");
     command
         .env("HOME", temp.path())
@@ -277,10 +356,7 @@ fn spawn_gateway_with_path(
         .arg(format!("127.0.0.1:{port}"))
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if !fake_bin.as_os_str().is_empty() {
-        command.env("PATH", prepend_to_path(fake_bin));
-    }
-    command.spawn().expect("spawn gateway")
+    command
 }
 
 fn free_port() -> u16 {
@@ -300,24 +376,43 @@ fn wait_for_health(port: u16) {
 }
 
 fn get_json(port: u16, path: &str) -> Value {
-    request_json(port, "GET", path, "")
+    get_status_and_json(port, path, None).1
 }
 
 fn post_json(port: u16, path: &str, body: &str) -> Value {
-    request_json(port, "POST", path, body)
+    request_status_and_json(port, "POST", path, body, None).1
 }
 
-fn request_json(port: u16, method: &str, path: &str, body: &str) -> Value {
+fn get_status_and_json(port: u16, path: &str, token: Option<&str>) -> (u16, Value) {
+    request_status_and_json(port, "GET", path, "", token)
+}
+
+fn request_status_and_json(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: &str,
+    token: Option<&str>,
+) -> (u16, Value) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect gateway");
+    let auth_header = token
+        .map(|token| format!("Authorization: Bearer {token}\r\n"))
+        .unwrap_or_default();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n{auth_header}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).expect("write request");
     let mut response = String::new();
     stream.read_to_string(&mut response).expect("read response");
+    let status = response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .expect("status code");
     let body = response.split("\r\n\r\n").nth(1).expect("response body");
-    serde_json::from_str(body).expect("json body")
+    (status, serde_json::from_str(body).expect("json body"))
 }
 
 fn prepend_to_path(dir: &std::path::Path) -> std::ffi::OsString {
