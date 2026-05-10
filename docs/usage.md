@@ -21,7 +21,7 @@ cargo build --release
 export PATH="$PWD/target/release:$PATH"
 ```
 
-Release tags build archives for Linux, macOS, and Windows.
+Release tags build archives for Linux and macOS.
 
 ## Initialize Atelier
 

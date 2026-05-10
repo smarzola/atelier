@@ -41,7 +41,7 @@ cargo build --release
 export PATH="$PWD/target/release:$PATH"
 ```
 
-Release tags build Linux, macOS, and Windows binary archives through GitHub Actions.
+Release tags build Linux and macOS binary archives through GitHub Actions.
 
 ### 2. Create a home workspace and a project
 
