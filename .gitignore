@@ -1,0 +1,17 @@
+# Rust
+/target/
+Cargo.lock
+
+# Editor and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local Atelier runtime
+.atelier-local/
+
+# Secrets
+.env
+*.pem
+*.key

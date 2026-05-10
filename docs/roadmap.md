@@ -1,0 +1,91 @@
+# Roadmap
+
+## Phase 0: Design scaffold
+
+- [x] Define project thesis.
+- [x] Record core principles.
+- [x] Record Codex runtime boundary decision.
+- [x] Record context injection decision.
+- [ ] Create initial public GitHub repository.
+
+## Phase 1: Minimal local CLI
+
+Goal: prove project-native local workflows without a daemon.
+
+Possible commands:
+
+```bash
+atelier init [path]
+atelier projects list
+atelier projects add <name> <path>
+atelier work <project> "prompt"
+atelier sessions <project>
+atelier resume <project> --last
+atelier continue <project> --last "prompt"
+```
+
+Expected behavior:
+
+- project registry stored in `~/.atelier/registry.toml`;
+- project-local `.atelier/` created explicitly;
+- Codex invoked in the project root;
+- job folder created for each Atelier-launched run;
+- Codex session IDs recorded when available;
+- no hidden Codex config mutation.
+
+## Phase 2: Identity and person memory
+
+Goal: support multiple people locally before gateways.
+
+Possible commands:
+
+```bash
+atelier people add alice
+atelier people memory edit alice
+atelier work --as alice <project> "prompt"
+```
+
+Expected behavior:
+
+- person memory stored outside projects;
+- person memory injected into Codex invocation context;
+- project facts recorded only in project files.
+
+## Phase 3: Gateway daemon
+
+Goal: long-lived Atelier process with message routing.
+
+Possible capabilities:
+
+- Telegram adapter first, or generic webhook first;
+- map gateway identities to people;
+- route messages to home or named projects;
+- create background jobs;
+- send completion notifications;
+- expose session list/resume commands.
+
+## Phase 4: Codex-native capability management
+
+Goal: provide explicit management UX for Codex-native capabilities without duplicating execution.
+
+Possible commands:
+
+```bash
+atelier mcp add project <project> <name> -- <command>
+atelier skill add project <project> <path-or-url>
+atelier doctor <project>
+```
+
+Expected behavior:
+
+- writes Codex-native config only through explicit management commands;
+- never creates overlapping tools when Codex already supports the capability.
+
+## Phase 5: Hardening
+
+- Access control for shared projects.
+- Better session indexing.
+- Audit logs.
+- Cross-platform packaging.
+- Documentation site.
+- CI and release automation.
