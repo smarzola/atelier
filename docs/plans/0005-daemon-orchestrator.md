@@ -12,6 +12,8 @@
 
 ## Task 1: Add daemon command surface
 
+**Status:** Done in `7a0488c feat: add daemon runtime command`.
+
 **Objective:** Introduce `atelier daemon run` as the user-facing long-lived runtime command without changing gateway behavior yet.
 
 **Files:**
@@ -39,6 +41,8 @@
 
 ## Task 2: Extract daemon runtime options
 
+**Status:** Done in `7a0488c feat: add daemon runtime command`.
+
 **Objective:** Make the daemon a named runtime abstraction rather than a thin command alias.
 
 **Files:**
@@ -59,6 +63,8 @@
    ```
 
 ## Task 3: Add daemon submit endpoint for managed work
+
+**Status:** Done in `157ffea feat: add daemon work submission endpoint`.
 
 **Objective:** Create a daemon-owned API endpoint that starts managed work from a project/thread/person/task request.
 
@@ -89,6 +95,8 @@
 
 ## Task 4: Make CLI managed work submit to daemon
 
+**Status:** Done in `b4f964d feat: route managed work through daemon`.
+
 **Objective:** Change `atelier work --managed` so it requires a reachable daemon instead of directly spawning `atelier __managed-worker`.
 
 **Files:**
@@ -111,6 +119,8 @@
 
 ## Task 5: Preserve explicit local escape hatches
 
+**Status:** Done in `b4f964d feat: route managed work through daemon` and the follow-up docs polish slice.
+
 **Objective:** Keep raw Codex and non-managed inspection workflows clear without undermining daemon-required managed work.
 
 **Files:**
@@ -131,6 +141,8 @@
    ```
 
 ## Task 6: Deprecate gateway-as-runtime wording
+
+**Status:** Done in the follow-up docs polish slice.
 
 **Objective:** Remove product wording that suggests the gateway is the daemon.
 

@@ -2,13 +2,17 @@
 
 ## Alpha milestone
 
-Atelier has entered alpha. The core local CLI, managed Codex app-server path, gateway, Telegram adapter, project API, supervision, audit logging, and user-facing usage docs are available for dogfooding.
+Atelier has entered alpha. The core local CLI, daemon-hosted gateway, daemon-submitted managed Codex app-server path, Telegram adapter, project API, supervision, audit logging, and user-facing usage docs are available for dogfooding.
 
-Next alpha work focuses on packaging and release readiness:
+Next alpha work focuses on hardening the daemonized runtime and release readiness:
 
-- [x] Cross-platform binary builds.
+- [x] Linux and macOS binary builds.
 - [x] GitHub Release automation.
 - [x] Installation docs for released binaries.
+- [x] Daemon command and daemon-hosted HTTP gateway.
+- [x] Daemon-owned managed work submission.
+- [x] CLI managed work submits to the daemon instead of spawning workers directly.
+- [ ] Prompt/completion notifications from daemon to gateways.
 - [ ] Better session indexing.
 - [ ] Shared-project access controls.
 
@@ -73,22 +77,28 @@ Expected behavior:
 - person memory injected into Codex invocation context;
 - project facts recorded only in project files.
 
-## Phase 3: Gateway daemon
+## Phase 3: Daemon and gateway runtime
 
-Goal: long-lived Atelier process with message routing.
+Goal: always-alive Atelier daemon with hosted gateways and managed worker orchestration.
 
-Possible capabilities:
+Implemented capabilities:
 
+- `atelier daemon run` as the primary long-lived runtime;
+- daemon-hosted generic HTTP gateway;
 - gateway binding scaffold via `atelier gateway bind <project> --thread <thread-id> --gateway <name> --external-thread <id>`;
 - gateway resolution scaffold via `atelier gateway resolve <project> --gateway <name> --external-thread <id>`;
-- Telegram adapter first, or generic webhook first;
 - map gateway identities to people;
 - bind Telegram topics, reply roots, or synthetic selections to Atelier threads;
 - route messages to home or named projects;
-- create background jobs;
-- send completion notifications;
-- expose thread, session list, and resume commands;
+- daemon-owned `/work` submission endpoint;
+- CLI `atelier work --managed` submits to the daemon;
 - default to single-writer concurrency per project.
+
+Remaining capabilities:
+
+- send prompt/completion notifications to gateway threads;
+- expose richer thread, session list, and resume APIs through the daemon;
+- harden access control for shared projects.
 
 ## Phase 4: Codex-native capability management
 
@@ -136,9 +146,14 @@ Expected behavior:
 - [x] Add an initial Telegram webhook adapter that translates message updates into generic gateway events.
 - [x] Add optional gateway worker supervision that periodically reconciles dead managed workers.
 - [x] Add file-first audit logs for gateway-originated prompt responses and message-start actions.
+- [x] Add `atelier daemon run` as the primary always-alive runtime.
+- [x] Host gateway endpoints inside the daemon.
+- [x] Add daemon-owned `/work` submission endpoint.
+- [x] Route `atelier work --managed` through the daemon.
+- [ ] Prompt/completion notifications from daemon to gateways.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
-- [ ] Cross-platform packaging.
+- [x] Linux and macOS packaging workflow.
 - [ ] Documentation site.
-- [ ] CI and release automation.
+- [x] CI and release automation.
 - [x] Publish alpha README quickstart and usage guide.
