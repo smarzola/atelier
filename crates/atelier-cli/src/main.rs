@@ -75,6 +75,8 @@ enum Command {
         #[command(subcommand)]
         command: McpCommand,
     },
+    /// Show a global dashboard across registered projects.
+    Status,
     /// Build or run a Codex work invocation.
     Work {
         /// Project folder path.
@@ -597,6 +599,9 @@ fn main() -> Result<()> {
                 }
             },
         },
+        Command::Status => {
+            print_global_status()?;
+        }
         Command::Work {
             project_path,
             thread,
@@ -725,6 +730,53 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn print_global_status() -> Result<()> {
+    let projects = atelier_core::registry::list_projects()?;
+    let mut all_jobs = Vec::new();
+    let mut waiting_prompts = 0usize;
+    for project in &projects {
+        for status in list_jobs(&project.path)? {
+            if status.status == "waiting-for-prompt" {
+                waiting_prompts += list_prompts(&project.path)?
+                    .into_iter()
+                    .filter(|(_job_id, prompt)| {
+                        prompt.status
+                            == atelier_core::codex_app_server::PendingPromptStatus::Pending
+                    })
+                    .count();
+            }
+            all_jobs.push((project.name.clone(), status));
+        }
+    }
+    let active_jobs = all_jobs
+        .iter()
+        .filter(|(_project, status)| {
+            status.status == "running" || status.status == "waiting-for-prompt"
+        })
+        .count();
+    let worker_lost_jobs = all_jobs
+        .iter()
+        .filter(|(_project, status)| status.status == "worker-lost")
+        .count();
+    let idle_timeout_jobs = all_jobs
+        .iter()
+        .filter(|(_project, status)| status.status == "idle-timeout")
+        .count();
+
+    println!("Projects: {}", projects.len());
+    println!("Active jobs: {active_jobs}");
+    println!("Waiting prompts: {waiting_prompts}");
+    println!("Worker-lost jobs: {worker_lost_jobs}");
+    println!("Idle-timeout jobs: {idle_timeout_jobs}");
+    for (project_name, status) in all_jobs {
+        println!(
+            "{}\t{}\t{}\t{}",
+            project_name, status.id, status.status, status.thread_id
+        );
+    }
     Ok(())
 }
 
