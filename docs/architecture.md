@@ -279,6 +279,7 @@ The daemon-hosted HTTP gateway exposes JSON endpoints:
 - `GET /jobs`
 - `GET /prompts`
 - `GET /projects`
+- `GET /events?project=<name>&thread=<thread-id>&after=<sequence>`
 - `POST /projects`
 - `POST /work`
 - `POST /prompts/respond`

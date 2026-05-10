@@ -48,6 +48,44 @@ fn daemon_work_endpoint_starts_work() {
 }
 
 #[test]
+fn daemon_events_endpoint_returns_thread_events_after_sequence() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    atelier_core::thread_events::append_thread_event(
+        &project,
+        &thread_id,
+        Some("job-example"),
+        "final_result",
+        serde_json::json!({"text":"Example result"}),
+    )
+    .expect("append first event");
+    atelier_core::thread_events::append_thread_event(
+        &project,
+        &thread_id,
+        Some("job-example"),
+        "job_succeeded",
+        serde_json::json!({"status":"succeeded"}),
+    )
+    .expect("append second event");
+
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port).spawn().expect("spawn daemon");
+    wait_for_health(port);
+
+    let events = get_json(
+        port,
+        &format!("/events?project=example-project&thread={thread_id}&after=1"),
+    );
+    assert_eq!(events["last_sequence"], 2);
+    assert_eq!(events["events"].as_array().expect("events").len(), 1);
+    assert_eq!(events["events"][0]["kind"], "job_succeeded");
+
+    let _ = daemon.kill();
+}
+
+#[test]
 fn daemon_run_hosts_gateway_health_endpoint() {
     let temp = tempfile::tempdir().expect("tempdir");
     let port = free_port();

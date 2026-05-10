@@ -1154,13 +1154,15 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
     }
     let method = request.method;
     let path = request.path;
+    let (route_path, query) = split_route_and_query(&path);
     let body = request.body;
-    let response = match (method.as_str(), path.as_str()) {
+    let response = match (method.as_str(), route_path) {
         ("GET", "/health") => serde_json::json!({"status":"ok"}),
         ("GET", "/status") => gateway_status_json()?,
         ("GET", "/jobs") => gateway_jobs_json()?,
         ("GET", "/prompts") => gateway_prompts_json()?,
         ("GET", "/projects") => gateway_projects_json()?,
+        ("GET", "/events") => gateway_events_json(query)?,
         ("POST", "/projects") => {
             let request: GatewayProjectCreateRequest = serde_json::from_str(&body)?;
             atelier_core::project::init_project(&request.path, &request.name)?;
@@ -1805,6 +1807,38 @@ fn write_json_response(
         body.len()
     )?;
     Ok(())
+}
+
+fn split_route_and_query(path: &str) -> (&str, &str) {
+    path.split_once('?').unwrap_or((path, ""))
+}
+
+fn query_value(query: &str, key: &str) -> Option<String> {
+    query.split('&').find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        if name == key {
+            Some(value.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn gateway_events_json(query: &str) -> Result<serde_json::Value> {
+    let project = query_value(query, "project").context("events endpoint requires project")?;
+    let thread = query_value(query, "thread").context("events endpoint requires thread")?;
+    let after = query_value(query, "after")
+        .as_deref()
+        .unwrap_or("0")
+        .parse::<u64>()
+        .context("parse events after cursor")?;
+    let project_path = resolve_project_arg(Path::new(&project))?;
+    let events = atelier_core::thread_events::read_thread_events(&project_path, &thread, after)?;
+    let last_sequence = events.last().map(|event| event.sequence).unwrap_or(after);
+    Ok(serde_json::json!({
+        "events": events,
+        "last_sequence": last_sequence
+    }))
 }
 
 fn gateway_status_json() -> Result<serde_json::Value> {

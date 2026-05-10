@@ -202,7 +202,17 @@ curl -s http://127.0.0.1:8787/work \
   -d "{\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
 ```
 
-### Jobs and prompts through the API
+### Thread events, jobs, and prompts through the API
+
+Read the shared thread event stream with a stateless cursor:
+
+```bash
+curl -s "http://127.0.0.1:8787/events?project=hello-world&thread=$THREAD&after=0"
+```
+
+The response contains `events` and `last_sequence`. Use `last_sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher.
+
+Inspect current jobs and prompts:
 
 ```bash
 curl -s http://127.0.0.1:8787/jobs
