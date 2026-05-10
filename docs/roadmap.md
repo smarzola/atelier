@@ -80,9 +80,9 @@ Goal: provide explicit management UX for Codex-native capabilities without dupli
 Possible commands:
 
 ```bash
-atelier mcp add project <project> <name> -- <command>
-atelier skill add project <project> <path-or-url>
-atelier doctor <project>
+atelier mcp add project <project> <name> -- <command> [args...]
+atelier skill add project <project> <skill-folder>
+atelier doctor --project <project>
 ```
 
 Expected behavior:

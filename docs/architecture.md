@@ -253,11 +253,13 @@ Atelier should avoid native tools that duplicate Codex features.
 - Reusable workflows: use Codex skills.
 - Project instructions: use `AGENTS.md`.
 
-Atelier may later provide management commands that write Codex-native configuration explicitly, for example:
+Atelier provides management commands that write Codex-native configuration explicitly:
 
 ```bash
 atelier mcp add project example-project context7 -- npx -y @upstash/context7-mcp
 atelier skill add project example-project ./skills/triage-inbox
 ```
+
+These commands create or update project-local Codex files such as `.codex/config.toml` and `.agents/skills/`. They are explicit setup operations, not hidden runtime mutation.
 
 These are management operations, not separate execution paths.

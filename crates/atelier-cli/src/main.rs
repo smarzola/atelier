@@ -47,6 +47,16 @@ enum Command {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+    /// Manage Codex-native skills.
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
+    /// Manage Codex-native MCP configuration.
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
+    },
     /// Build or run a Codex work invocation.
     Work {
         /// Project folder path.
@@ -139,6 +149,49 @@ enum PeopleMemoryCommand {
         id: String,
         /// Person memory body.
         memory: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillCommand {
+    /// Add a skill to a project using Codex-native `.agents/skills` layout.
+    Add {
+        #[command(subcommand)]
+        command: SkillAddCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SkillAddCommand {
+    /// Add a project-local skill from a folder.
+    Project {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Source skill folder path.
+        source_path: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommand {
+    /// Add an MCP server.
+    Add {
+        #[command(subcommand)]
+        command: McpAddCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpAddCommand {
+    /// Add a project-local MCP server to `.codex/config.toml`.
+    Project {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// MCP server name.
+        name: String,
+        /// MCP command and arguments after `--`.
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
     },
 }
 
@@ -241,6 +294,38 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Skill { command } => match command {
+            SkillCommand::Add { command } => match command {
+                SkillAddCommand::Project {
+                    project_path,
+                    source_path,
+                } => {
+                    let skill_name =
+                        atelier_core::codex_native::add_project_skill(&project_path, &source_path)?;
+                    println!("Added project skill {skill_name}");
+                }
+            },
+        },
+        Command::Mcp { command } => match command {
+            McpCommand::Add { command } => match command {
+                McpAddCommand::Project {
+                    project_path,
+                    name,
+                    command,
+                } => {
+                    let (binary, args) = command
+                        .split_first()
+                        .ok_or_else(|| anyhow::anyhow!("mcp command is required"))?;
+                    atelier_core::codex_native::add_project_mcp_server(
+                        &project_path,
+                        &name,
+                        binary,
+                        args,
+                    )?;
+                    println!("Added project MCP server {name}");
+                }
+            },
+        },
         Command::Work {
             project_path,
             thread,
