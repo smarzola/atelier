@@ -102,7 +102,9 @@ Expected behavior:
 - [x] Identify Codex app-server as the structured prompt-relay substrate for managed/gateway runs.
 - [x] Implement initial Codex app-server managed runs and pending prompt state.
 - [x] Add local prompt list/show/respond commands for managed-run prompt records.
-- [ ] Keep Codex app-server workers alive so prompt responses resume the running Codex turn.
+- [x] Keep Codex app-server workers alive so prompt responses resume the running Codex turn.
+- [x] List multiple managed jobs in one project.
+- [x] Recover idle managed jobs from saved job context.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

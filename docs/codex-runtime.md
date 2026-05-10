@@ -103,7 +103,20 @@ When Codex needs user input, it sends a server-initiated JSON-RPC request. Ateli
 
 The gateway response becomes the JSON-RPC response to that exact request id. `serverRequest/resolved` and final item/turn notifications close the pending prompt.
 
-The current managed CLI slice can start app-server, record protocol JSONL, persist the first pending prompt, and record local prompt responses. The next daemon/worker slice must keep the app-server process alive so `prompts respond` can resume the running Codex turn instead of only recording the intended response.
+Current managed work mode starts a background Atelier worker for each managed job. The worker owns one Codex app-server process, records `protocol.jsonl`, writes prompt records under `prompts/`, waits for response files under `responses/`, forwards those responses back to Codex, captures the final assistant message in `result.md`, and updates `status.json`.
+
+Useful commands:
+
+```bash
+atelier work <project> --thread <thread> --as <person> --managed "task"
+atelier jobs list <project>
+atelier prompts list <project>
+atelier prompts show <project> <prompt-id>
+atelier prompts respond <project> <prompt-id> accept
+atelier jobs recover <project> <job-id>
+```
+
+Managed workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the managed worker from the saved job context.
 
 A terminal passthrough mode can remain useful for local human work, but it is not the managed prompt-relay architecture.
 
