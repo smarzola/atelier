@@ -121,7 +121,7 @@ atelier thread send hello-world \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand, but thread-native send/follow is the preferred ongoing workflow. Inspect it from the CLI:
+`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand, but thread-native send/follow is the preferred ongoing workflow. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer. Inspect it from the CLI:
 
 ```bash
 atelier jobs list hello-world

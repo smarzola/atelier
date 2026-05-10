@@ -1590,13 +1590,22 @@ fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_j
     match decision {
         atelier_core::thread_interaction::ThreadInteractionDecision::QueueForRunningJob {
             job_id,
-        } => Ok(serde_json::json!({
-            "status":"queued",
-            "job_id":job_id,
-            "project":request.project,
-            "thread":request.thread,
-            "person":request.person
-        })),
+        } => {
+            let queued = atelier_core::thread_queue::queue_thread_message(
+                &request.project_path,
+                &request.thread,
+                &request.person,
+                &request.text,
+            )?;
+            Ok(serde_json::json!({
+                "status":"queued",
+                "job_id":job_id,
+                "queued_sequence":queued.sequence,
+                "project":request.project,
+                "thread":request.thread,
+                "person":request.person
+            }))
+        }
         atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt { prompt_id } => {
             Ok(serde_json::json!({
                 "status":"prompt-reply-required",
@@ -2401,6 +2410,13 @@ fn run_managed_worker(
         }
         if message_method(trimmed).as_deref() == Some("turn/completed") {
             write_job_status(job_dir, "succeeded", thread, person)?;
+            if let Some(project_path) = project_path_from_job_dir(job_dir) {
+                atelier_core::thread_queue::mark_queued_messages_ready(
+                    &project_path,
+                    thread,
+                    Some(&job_id_from_dir(job_dir)),
+                )?;
+            }
             return Ok(());
         }
     }
