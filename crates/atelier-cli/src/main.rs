@@ -47,6 +47,11 @@ enum Command {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+    /// Manage gateway bindings to Atelier threads.
+    Gateway {
+        #[command(subcommand)]
+        command: GatewayCommand,
+    },
     /// Manage Codex-native skills.
     Skill {
         #[command(subcommand)]
@@ -149,6 +154,35 @@ enum PeopleMemoryCommand {
         id: String,
         /// Person memory body.
         memory: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum GatewayCommand {
+    /// Bind an external gateway thread to an Atelier thread.
+    Bind {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Atelier thread id.
+        #[arg(long)]
+        thread: String,
+        /// Gateway name.
+        #[arg(long)]
+        gateway: String,
+        /// External gateway thread identifier.
+        #[arg(long)]
+        external_thread: String,
+    },
+    /// Resolve an external gateway thread to an Atelier thread.
+    Resolve {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Gateway name.
+        #[arg(long)]
+        gateway: String,
+        /// External gateway thread identifier.
+        #[arg(long)]
+        external_thread: String,
     },
 }
 
@@ -294,6 +328,40 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Gateway { command } => match command {
+            GatewayCommand::Bind {
+                project_path,
+                thread,
+                gateway,
+                external_thread,
+            } => {
+                let binding = atelier_core::gateway::bind_thread(
+                    &project_path,
+                    &thread,
+                    &gateway,
+                    &external_thread,
+                )?;
+                println!(
+                    "Bound {}:{} to {}",
+                    binding.gateway, binding.external_thread, binding.thread_id
+                );
+            }
+            GatewayCommand::Resolve {
+                project_path,
+                gateway,
+                external_thread,
+            } => {
+                if let Some(binding) = atelier_core::gateway::resolve_thread(
+                    &project_path,
+                    &gateway,
+                    &external_thread,
+                )? {
+                    println!("{}", binding.thread_id);
+                } else {
+                    std::process::exit(1);
+                }
+            }
+        },
         Command::Skill { command } => match command {
             SkillCommand::Add { command } => match command {
                 SkillAddCommand::Project {

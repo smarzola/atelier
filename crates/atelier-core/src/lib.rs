@@ -1,6 +1,7 @@
 pub mod codex;
 pub mod codex_native;
 pub mod doctor;
+pub mod gateway;
 pub mod job;
 pub mod people;
 pub mod project;

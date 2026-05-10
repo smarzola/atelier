@@ -64,6 +64,8 @@ Goal: long-lived Atelier process with message routing.
 
 Possible capabilities:
 
+- gateway binding scaffold via `atelier gateway bind <project> --thread <thread-id> --gateway <name> --external-thread <id>`;
+- gateway resolution scaffold via `atelier gateway resolve <project> --gateway <name> --external-thread <id>`;
 - Telegram adapter first, or generic webhook first;
 - map gateway identities to people;
 - bind Telegram topics, reply roots, or synthetic selections to Atelier threads;

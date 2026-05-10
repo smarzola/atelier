@@ -226,6 +226,15 @@ telegram:<chat_id>:<message_thread_id> -> atelier-thread:<thread-id>
 
 If native topics are unavailable or unreliable, the Telegram adapter may fall back to reply-root threads or synthetic command-selected threads. The same Atelier thread model should also support future platforms such as Discord, Slack, CLI, and API clients.
 
+The initial CLI provides file-backed gateway binding primitives:
+
+```bash
+atelier gateway bind example-project --thread thread-abc --gateway telegram --external-thread chat-123:topic-456
+atelier gateway resolve example-project --gateway telegram --external-thread chat-123:topic-456
+```
+
+Bindings are stored in the Atelier thread folder's `gateway-bindings.toml` file. Platform adapters should build on this gateway-neutral binding layer rather than placing Telegram assumptions into the core thread model.
+
 A message resolves in this order:
 
 1. explicit command target;
