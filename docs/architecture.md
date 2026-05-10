@@ -160,7 +160,7 @@ codex exec resume --last "Continue with the next step"
 codex exec resume <SESSION_ID> "Continue with the next step"
 ```
 
-Atelier should wrap these capabilities rather than reimplementing transcripts. It stores Codex session IDs as a lineage attached to an Atelier thread when available.
+Atelier should wrap these capabilities rather than reimplementing transcripts. The initial CLI supports `atelier continue <project> --thread <thread-id> --as <person> --last "prompt"` and `--session <session-id>`, implemented through `codex exec resume`. It stores Codex session IDs as a lineage attached to an Atelier thread when available.
 
 Initial commands might be:
 

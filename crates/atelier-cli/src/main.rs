@@ -63,6 +63,33 @@ enum Command {
         /// User prompt.
         prompt: String,
     },
+    /// Continue an existing Codex session through Atelier.
+    Continue {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Atelier thread id.
+        #[arg(long)]
+        thread: String,
+        /// Current person id/name.
+        #[arg(long = "as")]
+        person: String,
+        /// Resume the most recent Codex session.
+        #[arg(long)]
+        last: bool,
+        /// Resume a specific Codex session id.
+        #[arg(long)]
+        session: Option<String>,
+        /// User prompt.
+        prompt: String,
+    },
+    /// List Codex session lineage recorded for an Atelier thread.
+    Sessions {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Atelier thread id.
+        #[arg(long)]
+        thread: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -221,15 +248,7 @@ fn main() -> Result<()> {
             dry_run,
             prompt,
         } => {
-            let person_memory = atelier_core::people::read_person_memory(&person)?;
-            let person_memory_section = if person_memory.trim().is_empty() {
-                "Person memory: none\n".to_string()
-            } else {
-                format!("Person memory:\n{}\n", person_memory.trim())
-            };
-            let context = format!(
-                "<atelier-context>\nCurrent person: {person}\nThread: {thread}\n{person_memory_section}Boundary:\n- This context is about the current person and invocation.\n- Person memory must only describe the person, never project facts.\n- Project facts belong in project files.\n</atelier-context>\n\n<user-task>\n{prompt}\n</user-task>\n"
-            );
+            let context = build_context(&person, &thread, &prompt)?;
             let job = atelier_core::job::create_job(
                 &project_path,
                 &thread,
@@ -248,27 +267,85 @@ fn main() -> Result<()> {
                 println!("\n{}", invocation.prompt);
             } else {
                 let output = invocation.run()?;
-                std::fs::write(job.dir.join("result.md"), &output.stdout)?;
-                std::fs::write(job.dir.join("stderr.log"), &output.stderr)?;
-                atelier_core::job::complete_job(&job, &thread, &person, output.success)?;
-                println!("Job: {}", job.id);
-                println!("Job directory: {}", job.dir.display());
-                println!(
-                    "Status: {}",
-                    if output.success {
-                        "succeeded"
-                    } else {
-                        "failed"
-                    }
-                );
-                print!("{}", output.stdout);
-                if !output.success {
-                    eprint!("{}", output.stderr);
-                    std::process::exit(1);
-                }
+                finish_job(&job, &thread, &person, output)?;
             }
+        }
+        Command::Continue {
+            project_path,
+            thread,
+            person,
+            last,
+            session,
+            prompt,
+        } => {
+            let context = build_context(&person, &thread, &prompt)?;
+            let job = atelier_core::job::create_job(
+                &project_path,
+                &thread,
+                &person,
+                &prompt,
+                &context,
+                false,
+            )?;
+            let invocation = if last {
+                atelier_core::codex::CodexResumeInvocation::last(context)
+            } else if let Some(session) = session {
+                atelier_core::codex::CodexResumeInvocation::session(session, context)
+            } else {
+                anyhow::bail!("continue requires --last or --session <id>");
+            };
+            let output = invocation.run()?;
+            finish_job(&job, &thread, &person, output)?;
+        }
+        Command::Sessions {
+            project_path,
+            thread,
+        } => {
+            print!(
+                "{}",
+                atelier_core::thread::codex_session_lineage(&project_path, &thread)?
+            );
         }
     }
 
+    Ok(())
+}
+
+fn build_context(person: &str, thread: &str, prompt: &str) -> Result<String> {
+    let person_memory = atelier_core::people::read_person_memory(person)?;
+    let person_memory_section = if person_memory.trim().is_empty() {
+        "Person memory: none\n".to_string()
+    } else {
+        format!("Person memory:\n{}\n", person_memory.trim())
+    };
+    Ok(format!(
+        "<atelier-context>\nCurrent person: {person}\nThread: {thread}\n{person_memory_section}Boundary:\n- This context is about the current person and invocation.\n- Person memory must only describe the person, never project facts.\n- Project facts belong in project files.\n</atelier-context>\n\n<user-task>\n{prompt}\n</user-task>\n"
+    ))
+}
+
+fn finish_job(
+    job: &atelier_core::job::CreatedJob,
+    thread: &str,
+    person: &str,
+    output: atelier_core::codex::CodexRunOutput,
+) -> Result<()> {
+    std::fs::write(job.dir.join("result.md"), &output.stdout)?;
+    std::fs::write(job.dir.join("stderr.log"), &output.stderr)?;
+    atelier_core::job::complete_job(job, thread, person, output.success)?;
+    println!("Job: {}", job.id);
+    println!("Job directory: {}", job.dir.display());
+    println!(
+        "Status: {}",
+        if output.success {
+            "succeeded"
+        } else {
+            "failed"
+        }
+    );
+    print!("{}", output.stdout);
+    if !output.success {
+        eprint!("{}", output.stderr);
+        std::process::exit(1);
+    }
     Ok(())
 }

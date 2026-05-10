@@ -11,6 +11,19 @@ pub struct CodexInvocation {
 }
 
 #[derive(Debug, Clone)]
+pub struct CodexResumeInvocation {
+    pub binary: String,
+    pub prompt: String,
+    pub target: ResumeTarget,
+}
+
+#[derive(Debug, Clone)]
+pub enum ResumeTarget {
+    Last,
+    Session(String),
+}
+
+#[derive(Debug, Clone)]
 pub struct CodexRunOutput {
     pub stdout: String,
     pub stderr: String,
@@ -42,11 +55,49 @@ impl CodexInvocation {
             .output()
             .with_context(|| format!("run {}", self.display_command()))?;
 
-        Ok(CodexRunOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            success: output.status.success(),
-        })
+        Ok(output_to_run_output(output))
+    }
+}
+
+impl CodexResumeInvocation {
+    pub fn last(prompt: String) -> Self {
+        Self {
+            binary: "codex".to_string(),
+            prompt,
+            target: ResumeTarget::Last,
+        }
+    }
+
+    pub fn session(session_id: String, prompt: String) -> Self {
+        Self {
+            binary: "codex".to_string(),
+            prompt,
+            target: ResumeTarget::Session(session_id),
+        }
+    }
+
+    pub fn run(&self) -> Result<CodexRunOutput> {
+        let mut command = Command::new(&self.binary);
+        command.args(["exec", "resume"]);
+        match &self.target {
+            ResumeTarget::Last => {
+                command.arg("--last");
+            }
+            ResumeTarget::Session(session_id) => {
+                command.arg(session_id);
+            }
+        }
+        command.arg(&self.prompt);
+        let output = command.output().context("run codex exec resume")?;
+        Ok(output_to_run_output(output))
+    }
+}
+
+fn output_to_run_output(output: std::process::Output) -> CodexRunOutput {
+    CodexRunOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        success: output.status.success(),
     }
 }
 

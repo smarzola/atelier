@@ -24,9 +24,9 @@ atelier projects add <name> <path>
 atelier work <project> --thread <thread-id> --as <person> "prompt"
 atelier threads list <project>
 atelier thread new <project> "Release preparation"
-atelier sessions <project>
-atelier resume <project> --thread <thread-id> --last
-atelier continue <project> --thread <thread-id> --last "prompt"
+atelier sessions <project> --thread <thread-id>
+atelier continue <project> --thread <thread-id> --as <person> --last "prompt"
+atelier continue <project> --thread <thread-id> --as <person> --session <session-id> "prompt"
 ```
 
 Expected behavior:

@@ -59,6 +59,15 @@ pub fn list_threads(project_path: &Path) -> Result<Vec<ThreadMetadata>> {
     Ok(threads)
 }
 
+pub fn codex_session_lineage(project_path: &Path, thread_id: &str) -> Result<String> {
+    let path = thread_dir(project_path, thread_id).join("codex-sessions.jsonl");
+    match fs::read_to_string(&path) {
+        Ok(content) => Ok(content),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
+    }
+}
+
 pub fn thread_dir(project_path: &Path, thread_id: &str) -> PathBuf {
     project_path.join(".atelier/threads").join(thread_id)
 }
