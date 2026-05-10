@@ -8,6 +8,7 @@ pub mod people;
 pub mod project;
 pub mod registry;
 pub mod thread;
+pub mod thread_delivery;
 pub mod thread_events;
 pub mod thread_interaction;
 pub mod thread_queue;

@@ -219,7 +219,7 @@ Read the shared thread event stream with a stateless cursor:
 curl -s "http://127.0.0.1:8787/events?project=hello-world&thread=$THREAD&after=0"
 ```
 
-The response contains `events` and `last_sequence`. Use `last_sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher.
+The response contains `events` and `last_sequence`. Use `last_sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher. Durable subscribers can persist their own delivery cursor under `.atelier/threads/<thread-id>/delivery-cursors/` so daemon restarts do not duplicate delivered events.
 
 Inspect current jobs and prompts:
 
