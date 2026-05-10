@@ -1001,6 +1001,20 @@ struct GatewayProjectCreateRequest {
     path: PathBuf,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct DaemonWorkRequest {
+    project: String,
+    thread: String,
+    person: String,
+    text: String,
+    #[serde(default = "default_idle_timeout_seconds")]
+    idle_timeout_seconds: u64,
+}
+
+fn default_idle_timeout_seconds() -> u64 {
+    300
+}
+
 #[derive(Debug, Clone)]
 struct GatewayAuth {
     bearer_token: Option<String>,
@@ -1109,6 +1123,10 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
             }))?;
             serde_json::json!({"status":"created","project":{"name":project.name,"path":project.path}})
         }
+        ("POST", "/work") => {
+            let request: DaemonWorkRequest = serde_json::from_str(&body)?;
+            start_daemon_work(request)?
+        }
         ("POST", "/prompts/respond") => {
             let request: GatewayPromptResponseRequest = serde_json::from_str(&body)?;
             let project_path = resolve_project_arg(Path::new(&request.project))?;
@@ -1143,6 +1161,45 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         }
     };
     write_json_response(stream, 200, response)
+}
+
+fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {
+    let project_path = resolve_project_arg(Path::new(&request.project))?;
+    ensure_project_writer_available(&project_path)?;
+    let context = build_context(&request.person, &request.thread, &request.text)?;
+    let job = atelier_core::job::create_job(
+        &project_path,
+        &request.thread,
+        &request.person,
+        &request.text,
+        &context,
+        false,
+    )?;
+    run_managed_app_server_job(
+        &job,
+        &project_path,
+        &request.thread,
+        &request.person,
+        &context,
+        request.idle_timeout_seconds,
+    )?;
+    append_gateway_audit_event(serde_json::json!({
+        "action": "work_started",
+        "project": request.project,
+        "project_path": project_path,
+        "thread": request.thread,
+        "person": request.person,
+        "job_id": job.id,
+        "result": "started"
+    }))?;
+    Ok(serde_json::json!({
+        "status":"started",
+        "job_id":job.id,
+        "job_dir":job.dir,
+        "project":request.project,
+        "thread":request.thread,
+        "person":request.person
+    }))
 }
 
 fn handle_gateway_message_event(

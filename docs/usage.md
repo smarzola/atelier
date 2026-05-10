@@ -212,6 +212,14 @@ curl -s http://127.0.0.1:8787/projects \
   -d '{"name":"api-project","path":"/tmp/api-project"}'
 ```
 
+Start managed work through the daemon:
+
+```bash
+curl -s http://127.0.0.1:8787/work \
+  -H 'Content-Type: application/json' \
+  -d '{"project":"example-project","thread":"thread-example","person":"alice","text":"Run this task"}'
+```
+
 Jobs and prompts:
 
 ```bash

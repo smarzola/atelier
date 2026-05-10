@@ -7,6 +7,46 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[test]
+fn daemon_work_endpoint_starts_managed_work() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    let fake_bin = temp.path().join("fake-bin");
+    std::fs::create_dir(&fake_bin).expect("fake bin");
+    write_fake_codex(&fake_bin.join("codex"));
+
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port)
+        .env("PATH", prepend_to_path(&fake_bin))
+        .spawn()
+        .expect("spawn daemon");
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/work",
+        &format!(
+            r#"{{"project":"example-project","thread":"{}","person":"alice","text":"Run daemon task"}}"#,
+            thread_id
+        ),
+    );
+    assert_eq!(response["status"], "started");
+    assert_eq!(response["project"], "example-project");
+    assert_eq!(response["thread"], thread_id);
+    assert_eq!(response["person"], "alice");
+    wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+
+    let audit_event = latest_audit_event(&temp, "work_started");
+    assert_eq!(audit_event["action"], "work_started");
+    assert_eq!(audit_event["project"], "example-project");
+    assert_eq!(audit_event["person"], "alice");
+    assert_eq!(audit_event["result"], "started");
+
+    let _ = daemon.kill();
+}
+
+#[test]
 fn daemon_run_hosts_gateway_health_endpoint() {
     let temp = tempfile::tempdir().expect("tempdir");
     let port = free_port();
@@ -38,6 +78,21 @@ fn daemon_run_supervises_workers_by_default() {
     let _ = daemon.kill();
 }
 
+fn wait_for_job_success(project: &std::path::Path, job_id: &str) {
+    wait_for_job_status(project, job_id, "succeeded")
+}
+
+fn latest_audit_event(temp: &tempfile::TempDir, action: &str) -> Value {
+    let audit_path = temp.path().join(".atelier/gateway/audit.jsonl");
+    let content = std::fs::read_to_string(audit_path).expect("read audit log");
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .rev()
+        .find(|event| event["action"] == action)
+        .unwrap_or_else(|| panic!("missing audit event for action {action}"))
+}
+
 fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier")
@@ -62,6 +117,25 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
         ])
         .assert()
         .success();
+}
+
+fn create_thread(temp: &tempfile::TempDir, project: &std::path::Path) -> String {
+    let output = Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "thread",
+            "new",
+            project.to_str().expect("utf8 path"),
+            "Daemon thread",
+            "--porcelain",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    String::from_utf8(output).expect("utf8").trim().to_string()
 }
 
 fn write_running_job_with_dead_worker(project: &std::path::Path, job_id: &str) {
@@ -143,13 +217,59 @@ fn wait_for_health(port: u16) {
 }
 
 fn get_json(port: u16, path: &str) -> Value {
+    request_json(port, "GET", path, "")
+}
+
+fn post_json(port: u16, path: &str, body: &str) -> Value {
+    request_json(port, "POST", path, body)
+}
+
+fn request_json(port: u16, method: &str, path: &str, body: &str) -> Value {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect daemon");
     let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
     );
     stream.write_all(request.as_bytes()).expect("write request");
     let mut response = String::new();
     stream.read_to_string(&mut response).expect("read response");
     let body = response.split("\r\n\r\n").nth(1).expect("response body");
     serde_json::from_str(body).expect("json body")
+}
+
+fn write_fake_codex(path: &std::path::Path) {
+    std::fs::write(
+        path,
+        r#"#!/usr/bin/env python3
+import json, sys
+for line in sys.stdin:
+    message=json.loads(line)
+    if message.get("method") == "initialize":
+        print(json.dumps({"id":message["id"],"result":{"userAgent":"fake","codexHome":"/tmp/fake","platformFamily":"unix","platformOs":"linux"}}), flush=True)
+    elif message.get("method") == "initialized":
+        continue
+    elif message.get("method") == "thread/start":
+        print(json.dumps({"id":message["id"],"result":{"thread":{"id":"codex-thread","path":"/tmp/session.jsonl"},"model":"default","modelProvider":"fake","cwd":message["params"]["cwd"],"instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"workspaceWrite"}}}), flush=True)
+    elif message.get("method") == "turn/start":
+        print(json.dumps({"id":message["id"],"result":{"turn":{"id":"turn","status":"inProgress"}}}), flush=True)
+        print(json.dumps({"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg","text":"daemon done"},"threadId":"codex-thread","turnId":"turn"}}), flush=True)
+        print(json.dumps({"method":"turn/completed","params":{"threadId":"codex-thread","turn":{"id":"turn","status":"completed"}}}), flush=True)
+        break
+"#,
+    )
+    .expect("fake codex");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+}
+
+fn prepend_to_path(dir: &std::path::Path) -> std::ffi::OsString {
+    let original_path = std::env::var_os("PATH").expect("PATH");
+    std::env::join_paths(
+        std::iter::once(dir.as_os_str().to_owned())
+            .chain(std::env::split_paths(&original_path).map(|path| path.into_os_string())),
+    )
+    .expect("join PATH")
 }
