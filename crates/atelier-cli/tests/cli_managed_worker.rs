@@ -112,6 +112,19 @@ for line in sys.stdin:
         .expect("read result");
     assert!(result.contains("done"));
 
+    let events_path = project
+        .join(".atelier/threads")
+        .join(&thread_id)
+        .join("events.jsonl");
+    let events = std::fs::read_to_string(&events_path).expect("read thread events");
+    assert!(events.contains("\"kind\":\"job_started\""), "{events}");
+    assert!(
+        events.contains("\"kind\":\"job_status_changed\""),
+        "{events}"
+    );
+    assert!(events.contains("\"kind\":\"prompt_required\""), "{events}");
+    assert!(events.contains("\"kind\":\"final_result\""), "{events}");
+
     let _ = daemon.kill();
 }
 

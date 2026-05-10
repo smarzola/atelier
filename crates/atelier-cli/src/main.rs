@@ -2210,13 +2210,15 @@ fn run_managed_worker(
         let trimmed = line.trim_end();
         if let Some(prompt) = atelier_core::codex_app_server::parse_pending_prompt(trimmed) {
             persist_prompt(job_dir, &prompt)?;
+            append_prompt_required_event(job_dir, thread, &prompt)?;
             write_job_status(job_dir, "waiting-for-prompt", thread, person)?;
             wait_for_prompt_response(job_dir, &prompt, &mut stdin, idle_timeout_seconds)?;
             write_job_status(job_dir, "running", thread, person)?;
             continue;
         }
         if let Some(message) = agent_message_text(trimmed) {
-            std::fs::write(job_dir.join("result.md"), message)?;
+            std::fs::write(job_dir.join("result.md"), &message)?;
+            append_agent_message_event(job_dir, thread, &message)?;
         }
         if message_method(trimmed).as_deref() == Some("turn/completed") {
             write_job_status(job_dir, "succeeded", thread, person)?;
@@ -2285,16 +2287,56 @@ fn message_method(line: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
+fn append_prompt_required_event(
+    job_dir: &Path,
+    thread: &str,
+    prompt: &atelier_core::codex_app_server::PendingPrompt,
+) -> Result<()> {
+    let Some(project_path) = project_path_from_job_dir(job_dir) else {
+        return Ok(());
+    };
+    atelier_core::thread_events::append_thread_event(
+        &project_path,
+        thread,
+        Some(&job_id_from_dir(job_dir)),
+        "prompt_required",
+        serde_json::json!({
+            "prompt_id": prompt.id,
+            "summary": prompt.summary,
+            "codex_request_id": prompt.codex_request_id,
+        }),
+    )?;
+    Ok(())
+}
+
+fn append_agent_message_event(job_dir: &Path, thread: &str, message: &str) -> Result<()> {
+    let Some(project_path) = project_path_from_job_dir(job_dir) else {
+        return Ok(());
+    };
+    let job_id = job_id_from_dir(job_dir);
+    atelier_core::thread_events::append_thread_event(
+        &project_path,
+        thread,
+        Some(&job_id),
+        "agent_message_snapshot",
+        serde_json::json!({"text": message}),
+    )?;
+    atelier_core::thread_events::append_thread_event(
+        &project_path,
+        thread,
+        Some(&job_id),
+        "final_result",
+        serde_json::json!({"text": message}),
+    )?;
+    Ok(())
+}
+
 fn write_job_status(job_dir: &Path, status: &str, thread: &str, person: &str) -> Result<()> {
-    let id = job_dir
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("unknown-job")
-        .to_string();
+    let id = job_id_from_dir(job_dir);
     atelier_core::job::update_status(
         job_dir,
         atelier_core::job::JobStatus {
-            id,
+            id: id.clone(),
             status: status.to_string(),
             thread_id: thread.to_string(),
             person: person.to_string(),
@@ -2303,7 +2345,43 @@ fn write_job_status(job_dir: &Path, status: &str, thread: &str, person: &str) ->
             codex_binary: Some("codex".to_string()),
             invocation: vec!["app-server".to_string()],
         },
-    )
+    )?;
+    if let Some(project_path) = project_path_from_job_dir(job_dir) {
+        let kind = match status {
+            "running" => "job_started",
+            "succeeded" => "job_succeeded",
+            "failed" => "job_failed",
+            _ => "job_status_changed",
+        };
+        atelier_core::thread_events::append_thread_event(
+            &project_path,
+            thread,
+            Some(&id),
+            kind,
+            serde_json::json!({"status": status}),
+        )?;
+    }
+    Ok(())
+}
+
+fn job_id_from_dir(job_dir: &Path) -> String {
+    job_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown-job")
+        .to_string()
+}
+
+fn project_path_from_job_dir(job_dir: &Path) -> Option<PathBuf> {
+    let jobs_dir = job_dir.parent()?;
+    if jobs_dir.file_name()?.to_str()? != "jobs" {
+        return None;
+    }
+    let atelier_dir = jobs_dir.parent()?;
+    if atelier_dir.file_name()?.to_str()? != ".atelier" {
+        return None;
+    }
+    atelier_dir.parent().map(Path::to_path_buf)
 }
 
 fn send_json(stdin: &mut std::process::ChildStdin, value: serde_json::Value) -> Result<()> {
