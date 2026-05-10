@@ -23,7 +23,7 @@ fn initialized_project() -> (tempfile::TempDir, std::path::PathBuf, String) {
             "thread",
             "new",
             project.to_str().expect("utf8 path"),
-            "Dogfood",
+            "Interactive dogfood",
             "--porcelain",
         ])
         .assert()
@@ -47,59 +47,16 @@ fn prepend_to_path(dir: &std::path::Path) -> std::ffi::OsString {
 }
 
 #[test]
-fn work_dry_run_exposes_codex_policy_overrides_without_mutating_project_config() {
-    let (_temp, project, thread_id) = initialized_project();
-    let codex_config = project.join(".codex/config.toml");
-
-    Command::cargo_bin("atelier")
-        .expect("atelier binary exists")
-        .args([
-            "work",
-            project.to_str().expect("utf8 path"),
-            "--thread",
-            &thread_id,
-            "--as",
-            "alice",
-            "--approval-policy",
-            "on-request",
-            "--sandbox",
-            "workspace-write",
-            "--model",
-            "example-codex-model",
-            "--search",
-            "--dry-run",
-            "Check the next dogfood gap",
-        ])
-        .assert()
-        .success()
-        .stdout(
-            predicate::str::contains("codex exec")
-                .and(predicate::str::contains(
-                    "-c approval_policy=\"on-request\"",
-                ))
-                .and(predicate::str::contains("--sandbox workspace-write"))
-                .and(predicate::str::contains("--model example-codex-model"))
-                .and(predicate::str::contains("--search"))
-                .and(predicate::str::contains("Check the next dogfood gap")),
-        );
-
-    assert!(
-        !codex_config.exists(),
-        "invocation-time policy must not rewrite project Codex config"
-    );
-}
-
-#[test]
-fn work_passes_codex_policy_overrides_to_fake_codex_and_records_them() {
+fn work_interactive_streams_codex_prompts_to_stdout_and_records_job() {
     let (_temp, project, thread_id) = initialized_project();
     let fake_bin = project.join("fake-bin");
     std::fs::create_dir(&fake_bin).expect("create fake bin");
     let fake_codex = fake_bin.join("codex");
-    let recorder = project.join("codex-policy-argv.txt");
+    let recorder = project.join("interactive-argv.txt");
     std::fs::write(
         &fake_codex,
         format!(
-            "#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > {}\necho 'FAKE_POLICY_RESULT'\n",
+            "#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > {}\necho 'Codex asks: approve shell command?'\necho 'INTERACTIVE_DONE'\n",
             recorder.display()
         ),
     )
@@ -121,24 +78,21 @@ fn work_passes_codex_policy_overrides_to_fake_codex_and_records_them() {
             &thread_id,
             "--as",
             "alice",
-            "--approval-policy",
-            "never",
-            "--sandbox",
-            "read-only",
-            "--search",
-            "Summarize without writes",
+            "--interactive",
+            "Run a task that may ask for approval",
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("FAKE_POLICY_RESULT"));
+        .stdout(predicate::str::contains(
+            "Codex asks: approve shell command?",
+        ))
+        .stdout(predicate::str::contains("INTERACTIVE_DONE"))
+        .stdout(predicate::str::contains("Status: succeeded"));
 
     let argv = std::fs::read_to_string(&recorder).expect("read codex argv");
     assert!(argv.contains("exec\n"));
-    assert!(argv.contains("-c\napproval_policy=\"never\"\n"));
-    assert!(argv.contains("--sandbox\nread-only\n"));
-    assert!(argv.contains("--search\n"));
     assert!(argv.contains("--cd\n"));
-    assert!(argv.contains("Summarize without writes"));
+    assert!(argv.contains("Run a task that may ask for approval"));
 
     let jobs_dir = project.join(".atelier/jobs");
     let mut job_dirs: Vec<_> = std::fs::read_dir(&jobs_dir)
@@ -147,25 +101,25 @@ fn work_passes_codex_policy_overrides_to_fake_codex_and_records_them() {
         .collect();
     job_dirs.sort();
     assert_eq!(job_dirs.len(), 1);
-    let status = std::fs::read_to_string(job_dirs[0].join("status.json")).expect("read status");
-    assert!(status.contains("\"-c\""));
-    assert!(status.contains("\"approval_policy=\\\"never\\\"\""));
-    assert!(status.contains("\"--sandbox\""));
-    assert!(status.contains("\"read-only\""));
-    assert!(status.contains("\"--search\""));
+    assert!(job_dirs[0].join("result.md").is_file());
+    assert_eq!(
+        std::fs::read_to_string(job_dirs[0].join("interactive-output.md"))
+            .expect("read interactive output note"),
+        "Interactive job output was streamed directly to the attached terminal.\n"
+    );
 }
 
 #[test]
-fn continue_passes_codex_policy_overrides_to_fake_codex() {
+fn work_interactive_does_not_add_model_when_model_is_omitted() {
     let (_temp, project, thread_id) = initialized_project();
     let fake_bin = project.join("fake-bin");
     std::fs::create_dir(&fake_bin).expect("create fake bin");
     let fake_codex = fake_bin.join("codex");
-    let recorder = project.join("codex-continue-policy-argv.txt");
+    let recorder = project.join("interactive-no-model-argv.txt");
     std::fs::write(
         &fake_codex,
         format!(
-            "#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > {}\necho 'FAKE_CONTINUE_POLICY_RESULT'\n",
+            "#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > {}\necho 'NO_MODEL_DONE'\n",
             recorder.display()
         ),
     )
@@ -181,28 +135,18 @@ fn continue_passes_codex_policy_overrides_to_fake_codex() {
         .expect("atelier binary exists")
         .env("PATH", prepend_to_path(&fake_bin))
         .args([
-            "continue",
+            "work",
             project.to_str().expect("utf8 path"),
             "--thread",
             &thread_id,
             "--as",
             "alice",
-            "--last",
-            "--approval-policy",
-            "on-request",
-            "--model",
-            "example-codex-model",
-            "Continue carefully",
+            "--interactive",
+            "Use Codex default model",
         ])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("FAKE_CONTINUE_POLICY_RESULT"));
+        .success();
 
     let argv = std::fs::read_to_string(&recorder).expect("read codex argv");
-    assert!(argv.contains("exec\n"));
-    assert!(argv.contains("resume\n"));
-    assert!(argv.contains("--last\n"));
-    assert!(argv.contains("-c\napproval_policy=\"on-request\"\n"));
-    assert!(argv.contains("--model\nexample-codex-model\n"));
-    assert!(argv.contains("Continue carefully"));
+    assert!(!argv.contains("--model\n"));
 }

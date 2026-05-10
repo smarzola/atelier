@@ -124,12 +124,23 @@ atelier work /path/to/project \
   --as alice \
   --approval-policy on-request \
   --sandbox workspace-write \
-  --model gpt-5.1-codex-max \
   --search \
   "Do the next careful implementation step."
 ```
 
-This currently maps to Codex-native arguments such as `-c approval_policy=\"on-request\"`, `--sandbox workspace-write`, `--model ...`, and `--search`. The sandbox flag is only available for fresh `codex exec` runs; resume uses Codex's supported resume options and can still pass approval-policy and model overrides.
+This currently maps to Codex-native arguments such as `-c approval_policy=\"on-request\"`, `--sandbox workspace-write`, and `--search`. Atelier should not set a model by default; omitting `--model` lets Codex select its configured/default model. A model override remains available only as an explicit per-run choice. The sandbox flag is only available for fresh `codex exec` runs; resume uses Codex's supported resume options and can still pass approval-policy and model overrides.
+
+For local interactive use, a user can attach Codex directly to the current terminal:
+
+```bash
+atelier work /path/to/project \
+  --thread thread-example \
+  --as alice \
+  --interactive \
+  "Do a task that may require approval."
+```
+
+Interactive mode deliberately streams Codex stdout/stderr/stdin through the attached terminal so Codex prompts, approval requests, and other questions can be seen and answered by the human. This is the local CLI shape of the same capability a future gateway/daemon needs: surfaced pending prompts plus a response path back to the Codex process.
 
 Where the prompt contains clearly delimited runtime context:
 

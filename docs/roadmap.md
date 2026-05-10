@@ -98,6 +98,8 @@ Expected behavior:
 - [x] Record Codex invocation metadata in job status.
 - [x] Keep hygiene scanner generic and cover it with a unit test.
 - [x] Pass Codex run policy choices explicitly at invocation time: approval policy, sandbox, model, and search.
+- [x] Support local interactive Codex runs so prompts and approvals are visible/respondable in the attached terminal.
+- [ ] Gateway/daemon prompt relay for Codex approval/questions.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

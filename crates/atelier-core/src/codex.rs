@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{Context, Result};
 
@@ -93,21 +93,9 @@ impl CodexInvocation {
     }
 
     pub fn run(&self) -> Result<CodexRunOutput> {
-        let mut invocation = vec!["exec".to_string()];
-        invocation.extend(self.policy.args(true));
-        invocation.extend([
-            "--cd".to_string(),
-            self.project_path.display().to_string(),
-            "<prompt>".to_string(),
-        ]);
-        let mut command = Command::new(&self.binary);
-        command.arg("exec");
-        command.args(self.policy.args(true));
-        command
-            .arg("--cd")
-            .arg(&self.project_path)
-            .arg(&self.prompt);
-        let output = command
+        let invocation = self.invocation();
+        let output = self
+            .command()
             .output()
             .with_context(|| format!("run {}", self.display_command()))?;
 
@@ -116,6 +104,48 @@ impl CodexInvocation {
             self.binary.clone(),
             invocation,
         ))
+    }
+
+    pub fn run_interactive(&self) -> Result<CodexRunOutput> {
+        let invocation = self.invocation();
+        let status = self
+            .command()
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .status()
+            .with_context(|| format!("run interactive {}", self.display_command()))?;
+
+        Ok(CodexRunOutput {
+            stdout: String::new(),
+            stderr: String::new(),
+            success: status.success(),
+            exit_code: status.code(),
+            invocation,
+            codex_binary: self.binary.clone(),
+        })
+    }
+
+    fn command(&self) -> Command {
+        let mut command = Command::new(&self.binary);
+        command.arg("exec");
+        command.args(self.policy.args(true));
+        command
+            .arg("--cd")
+            .arg(&self.project_path)
+            .arg(&self.prompt);
+        command
+    }
+
+    fn invocation(&self) -> Vec<String> {
+        let mut invocation = vec!["exec".to_string()];
+        invocation.extend(self.policy.args(true));
+        invocation.extend([
+            "--cd".to_string(),
+            self.project_path.display().to_string(),
+            "<prompt>".to_string(),
+        ]);
+        invocation
     }
 }
 

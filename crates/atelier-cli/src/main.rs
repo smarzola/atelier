@@ -75,6 +75,9 @@ enum Command {
         /// Print command/context and do not execute Codex.
         #[arg(long)]
         dry_run: bool,
+        /// Attach Codex directly to the terminal so prompts and approvals can be answered.
+        #[arg(long)]
+        interactive: bool,
         /// Invocation-time Codex approval policy override.
         #[arg(long)]
         approval_policy: Option<String>,
@@ -417,6 +420,7 @@ fn main() -> Result<()> {
             thread,
             person,
             dry_run,
+            interactive,
             approval_policy,
             sandbox,
             model,
@@ -449,6 +453,9 @@ fn main() -> Result<()> {
                 println!("Job directory: {}", job.dir.display());
                 println!("Would run: {}", invocation.display_command());
                 println!("\n{}", invocation.prompt);
+            } else if interactive {
+                let output = invocation.run_interactive()?;
+                finish_job(&job, &thread, &person, output)?;
             } else {
                 let output = invocation.run()?;
                 finish_job(&job, &thread, &person, output)?;
@@ -524,6 +531,12 @@ fn finish_job(
     output: atelier_core::codex::CodexRunOutput,
 ) -> Result<()> {
     std::fs::write(job.dir.join("result.md"), &output.stdout)?;
+    if output.stdout.is_empty() {
+        std::fs::write(
+            job.dir.join("interactive-output.md"),
+            "Interactive job output was streamed directly to the attached terminal.\n",
+        )?;
+    }
     std::fs::write(job.dir.join("stderr.log"), &output.stderr)?;
     atelier_core::job::complete_job(job, thread, person, &output)?;
     println!("Job: {}", job.id);
