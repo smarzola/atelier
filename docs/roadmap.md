@@ -99,7 +99,8 @@ Expected behavior:
 - [x] Keep hygiene scanner generic and cover it with a unit test.
 - [x] Pass Codex run policy choices explicitly at invocation time: approval policy, sandbox, model, and search.
 - [x] Support local interactive Codex runs so prompts and approvals are visible/respondable in the attached terminal.
-- [ ] Gateway/daemon prompt relay for Codex approval/questions.
+- [x] Identify Codex app-server as the structured prompt-relay substrate for managed/gateway runs.
+- [ ] Implement Codex app-server managed runs and pending prompt state.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

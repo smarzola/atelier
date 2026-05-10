@@ -1,4 +1,5 @@
 pub mod codex;
+pub mod codex_app_server;
 pub mod codex_native;
 pub mod doctor;
 pub mod gateway;

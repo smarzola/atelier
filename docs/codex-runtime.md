@@ -75,6 +75,36 @@ and records:
 
 Atelier records Codex invocation metadata and exit code in `status.json`. Future versions should also record richer Codex metadata, such as Codex version and native Codex session identifiers when available.
 
+## Managed runs and prompt relay
+
+`codex exec` is appropriate for non-interactive one-shot work. It can emit JSON events with `--json`, but it is not the right substrate for gateway prompt relay because the gateway needs to answer Codex while the turn is running.
+
+Managed Atelier jobs should use Codex's app-server protocol:
+
+```bash
+codex app-server
+```
+
+The app-server is a bidirectional JSON-RPC interface over stdio, websocket, or unix socket. Atelier should start with stdio. The client flow is:
+
+1. send `initialize` with `experimentalApi: true`;
+2. send `initialized`;
+3. send `thread/start` or `thread/resume` with project `cwd`, approval policy, sandbox/permissions, and no model override unless explicitly requested;
+4. send `turn/start` with the explicit Atelier context preamble plus the user's task;
+5. persist raw JSON-RPC traffic and derived job state.
+
+When Codex needs user input, it sends a server-initiated JSON-RPC request. Atelier must store this as a pending prompt and route it to the bound person/gateway. Important request methods include:
+
+- `item/commandExecution/requestApproval`;
+- `item/fileChange/requestApproval`;
+- `item/permissions/requestApproval`;
+- `item/tool/requestUserInput`;
+- `mcpServer/elicitation/request`.
+
+The gateway response becomes the JSON-RPC response to that exact request id. `serverRequest/resolved` and final item/turn notifications close the pending prompt.
+
+A terminal passthrough mode can remain useful for local human work, but it is not the managed prompt-relay architecture.
+
 ## Doctor checks
 
 `atelier doctor` checks the local Codex runtime:
