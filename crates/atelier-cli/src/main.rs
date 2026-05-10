@@ -60,6 +60,11 @@ enum Command {
         #[command(subcommand)]
         command: PromptsCommand,
     },
+    /// Inspect Atelier jobs.
+    Jobs {
+        #[command(subcommand)]
+        command: JobsCommand,
+    },
     /// Manage Codex-native skills.
     Skill {
         #[command(subcommand)]
@@ -258,6 +263,15 @@ enum PromptsCommand {
         prompt_id: String,
         /// Decision to record.
         decision: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum JobsCommand {
+    /// List jobs in a project.
+    List {
+        /// Project folder path.
+        project_path: PathBuf,
     },
 }
 
@@ -483,6 +497,13 @@ fn main() -> Result<()> {
                 println!("Recorded response {decision} for {prompt_id}");
             }
         },
+        Command::Jobs { command } => match command {
+            JobsCommand::List { project_path } => {
+                for status in list_jobs(&project_path)? {
+                    println!("{}\t{}\t{}", status.id, status.status, status.thread_id);
+                }
+            }
+        },
         Command::Skill { command } => match command {
             SkillCommand::Add { command } => match command {
                 SkillAddCommand::Project {
@@ -638,6 +659,26 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn list_jobs(project_path: &Path) -> Result<Vec<atelier_core::job::JobStatus>> {
+    let jobs_dir = project_path.join(".atelier/jobs");
+    let mut jobs = Vec::new();
+    if !jobs_dir.exists() {
+        return Ok(jobs);
+    }
+    for job_entry in std::fs::read_dir(jobs_dir).context("read jobs dir")? {
+        let status_path = job_entry?.path().join("status.json");
+        if status_path.exists() {
+            let status = serde_json::from_str(
+                &std::fs::read_to_string(&status_path).context("read job status")?,
+            )
+            .context("parse job status")?;
+            jobs.push(status);
+        }
+    }
+    jobs.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(jobs)
 }
 
 fn list_prompts(
