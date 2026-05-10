@@ -104,7 +104,7 @@ Atelier's global state belongs outside projects, for example:
   registry.toml
 ```
 
-Global memory is person memory only. It is safe to inject into any project session for that person because it contains no project facts. The initial CLI stores this under `$ATELIER_HOME/people/<person>/memory.md`, falling back to `~/.atelier/people/<person>/memory.md` when `ATELIER_HOME` is unset.
+Global memory is person memory only. It is safe to inject into any project session for that person because it contains no project facts. The initial CLI stores person memory under `$ATELIER_HOME/people/<person>/memory.md`, falling back to `~/.atelier/people/<person>/memory.md` when `ATELIER_HOME` is unset. The global project registry is stored separately in `$ATELIER_HOME/registry.toml` and records project names and paths, not project knowledge.
 
 ## Runtime context injection
 

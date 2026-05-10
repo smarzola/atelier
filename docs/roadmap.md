@@ -18,10 +18,10 @@ Goal: prove project-native local workflows without a daemon.
 Possible commands:
 
 ```bash
-atelier init [path]
+atelier project init [path] --name <name>
 atelier projects list
 atelier projects add <name> <path>
-atelier work <project> "prompt"
+atelier work <project> --thread <thread-id> --as <person> "prompt"
 atelier threads list <project>
 atelier thread new <project> "Release preparation"
 atelier sessions <project>

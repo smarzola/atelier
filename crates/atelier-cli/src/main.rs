@@ -16,10 +16,15 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Manage Atelier projects.
+    /// Manage one Atelier project.
     Project {
         #[command(subcommand)]
         command: ProjectCommand,
+    },
+    /// Manage the global project registry.
+    Projects {
+        #[command(subcommand)]
+        command: ProjectsCommand,
     },
     /// Manage person identities and person-scoped memory.
     People {
@@ -70,6 +75,19 @@ enum ProjectCommand {
         #[arg(long)]
         name: String,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum ProjectsCommand {
+    /// Register or update a project by name.
+    Add {
+        /// Stable project name.
+        name: String,
+        /// Project folder path.
+        path: PathBuf,
+    },
+    /// List registered projects.
+    List,
 }
 
 #[derive(Debug, Subcommand)]
@@ -132,6 +150,21 @@ fn main() -> Result<()> {
                     name,
                     path.display()
                 );
+            }
+        },
+        Command::Projects { command } => match command {
+            ProjectsCommand::Add { name, path } => {
+                let project = atelier_core::registry::add_project(&name, &path)?;
+                println!(
+                    "Added project {} at {}",
+                    project.name,
+                    project.path.display()
+                );
+            }
+            ProjectsCommand::List => {
+                for project in atelier_core::registry::list_projects()? {
+                    println!("{}\t{}", project.name, project.path.display());
+                }
             }
         },
         Command::People { command } => match command {
