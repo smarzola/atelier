@@ -1,0 +1,8 @@
+pub mod codex;
+pub mod job;
+pub mod project;
+pub mod thread;
+
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
