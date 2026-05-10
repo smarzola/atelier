@@ -116,6 +116,21 @@ Preferred invocation model for non-interactive gateway work:
 codex exec --cd /path/to/project "<atelier runtime context + user task>"
 ```
 
+When a run needs choices such as approvals, sandbox, model, or web search, Atelier should pass them as explicit invocation-time Codex flags/config overrides rather than mutating `~/.codex/config.toml` or project `.codex/config.toml`:
+
+```bash
+atelier work /path/to/project \
+  --thread thread-example \
+  --as alice \
+  --approval-policy on-request \
+  --sandbox workspace-write \
+  --model gpt-5.1-codex-max \
+  --search \
+  "Do the next careful implementation step."
+```
+
+This currently maps to Codex-native arguments such as `-c approval_policy=\"on-request\"`, `--sandbox workspace-write`, `--model ...`, and `--search`. The sandbox flag is only available for fresh `codex exec` runs; resume uses Codex's supported resume options and can still pass approval-policy and model overrides.
+
 Where the prompt contains clearly delimited runtime context:
 
 ```markdown

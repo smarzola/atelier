@@ -75,6 +75,18 @@ enum Command {
         /// Print command/context and do not execute Codex.
         #[arg(long)]
         dry_run: bool,
+        /// Invocation-time Codex approval policy override.
+        #[arg(long)]
+        approval_policy: Option<String>,
+        /// Invocation-time Codex sandbox mode override.
+        #[arg(long)]
+        sandbox: Option<String>,
+        /// Invocation-time Codex model override.
+        #[arg(long)]
+        model: Option<String>,
+        /// Enable Codex-native web search for this invocation.
+        #[arg(long)]
+        search: bool,
         /// User prompt.
         prompt: String,
     },
@@ -94,6 +106,12 @@ enum Command {
         /// Resume a specific Codex session id.
         #[arg(long)]
         session: Option<String>,
+        /// Invocation-time Codex approval policy override.
+        #[arg(long)]
+        approval_policy: Option<String>,
+        /// Invocation-time Codex model override.
+        #[arg(long)]
+        model: Option<String>,
         /// User prompt.
         prompt: String,
     },
@@ -399,8 +417,18 @@ fn main() -> Result<()> {
             thread,
             person,
             dry_run,
+            approval_policy,
+            sandbox,
+            model,
+            search,
             prompt,
         } => {
+            let policy = atelier_core::codex::CodexPolicy {
+                approval_policy,
+                sandbox,
+                model,
+                search,
+            };
             let context = build_context(&person, &thread, &prompt)?;
             let job = atelier_core::job::create_job(
                 &project_path,
@@ -410,8 +438,11 @@ fn main() -> Result<()> {
                 &context,
                 dry_run,
             )?;
-            let invocation =
-                atelier_core::codex::CodexInvocation::new(&project_path, context.clone());
+            let invocation = atelier_core::codex::CodexInvocation::with_policy(
+                &project_path,
+                context.clone(),
+                policy,
+            );
 
             if dry_run {
                 println!("Job: {}", job.id);
@@ -429,8 +460,16 @@ fn main() -> Result<()> {
             person,
             last,
             session,
+            approval_policy,
+            model,
             prompt,
         } => {
+            let policy = atelier_core::codex::CodexPolicy {
+                approval_policy,
+                sandbox: None,
+                model,
+                search: false,
+            };
             let context = build_context(&person, &thread, &prompt)?;
             let job = atelier_core::job::create_job(
                 &project_path,
@@ -441,9 +480,11 @@ fn main() -> Result<()> {
                 false,
             )?;
             let invocation = if last {
-                atelier_core::codex::CodexResumeInvocation::last(context)
+                atelier_core::codex::CodexResumeInvocation::last_with_policy(context, policy)
             } else if let Some(session) = session {
-                atelier_core::codex::CodexResumeInvocation::session(session, context)
+                atelier_core::codex::CodexResumeInvocation::session_with_policy(
+                    session, context, policy,
+                )
             } else {
                 anyhow::bail!("continue requires --last or --session <id>");
             };

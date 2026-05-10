@@ -97,6 +97,7 @@ Expected behavior:
 - [x] Preserve Codex exit codes when work fails.
 - [x] Record Codex invocation metadata in job status.
 - [x] Keep hygiene scanner generic and cover it with a unit test.
+- [x] Pass Codex run policy choices explicitly at invocation time: approval policy, sandbox, model, and search.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.
