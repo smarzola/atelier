@@ -66,7 +66,72 @@ fn gateway_message_event_starts_managed_work() {
         ),
     );
     assert_eq!(response["status"], "started");
-    let job_id = response["job_id"].as_str().expect("job id");
+    wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+
+    let _ = server.kill();
+}
+
+#[test]
+fn gateway_message_event_resolves_bound_thread_and_person() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "gateway",
+            "bind",
+            project.to_str().expect("utf8 path"),
+            "--thread",
+            &thread_id,
+            "--gateway",
+            "example-gateway",
+            "--external-thread",
+            "external-thread",
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "gateway",
+            "bind-person",
+            "--gateway",
+            "example-gateway",
+            "--external-user",
+            "external-user",
+            "--person",
+            "alice",
+        ])
+        .assert()
+        .success();
+
+    let fake_bin = temp.path().join("fake-bin");
+    std::fs::create_dir(&fake_bin).expect("fake bin");
+    write_fake_codex(&fake_bin.join("codex"));
+
+    let port = free_port();
+    let mut server = spawn_gateway_with_path(&temp, port, &fake_bin);
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/events/message",
+        r#"{"gateway":"example-gateway","external_thread":"external-thread","external_user":"external-user","text":"Run resolved gateway task"}"#,
+    );
+    assert_eq!(response["status"], "started");
+    assert_eq!(response["project"], "example-project");
+    assert_eq!(response["thread"], thread_id);
+    assert_eq!(response["person"], "alice");
+    wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+
+    let _ = server.kill();
+}
+
+fn wait_for_job_success(project: &std::path::Path, job_id: &str) {
     let status_path = project
         .join(".atelier/jobs")
         .join(job_id)
@@ -82,8 +147,6 @@ fn gateway_message_event_starts_managed_work() {
         assert!(Instant::now() < deadline, "job did not complete: {status}");
         std::thread::sleep(Duration::from_millis(100));
     }
-
-    let _ = server.kill();
 }
 
 fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {

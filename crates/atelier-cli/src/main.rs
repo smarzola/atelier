@@ -237,6 +237,18 @@ enum GatewayCommand {
         #[arg(long, default_value = "127.0.0.1:8787")]
         listen: String,
     },
+    /// Bind an external gateway user to an Atelier person.
+    BindPerson {
+        /// Gateway name.
+        #[arg(long)]
+        gateway: String,
+        /// External gateway user identifier.
+        #[arg(long)]
+        external_user: String,
+        /// Atelier person id.
+        #[arg(long)]
+        person: String,
+    },
     /// Bind an external gateway thread to an Atelier thread.
     Bind {
         /// Project folder path.
@@ -480,6 +492,18 @@ fn main() -> Result<()> {
         Command::Gateway { command } => match command {
             GatewayCommand::Serve { listen } => {
                 serve_gateway(&listen)?;
+            }
+            GatewayCommand::BindPerson {
+                gateway,
+                external_user,
+                person,
+            } => {
+                let binding =
+                    atelier_core::gateway::bind_person(&gateway, &external_user, &person)?;
+                println!(
+                    "Bound {}:{} to {}",
+                    binding.gateway, binding.external_user, binding.person
+                );
             }
             GatewayCommand::Bind {
                 project_path,
@@ -944,10 +968,8 @@ fn handle_gateway_stream(stream: &mut TcpStream) -> Result<()> {
         }
         ("POST", "/events/message") => {
             let event: atelier_core::gateway::GatewayMessageEvent = serde_json::from_str(&body)?;
-            let project = event.project.context("message event requires project")?;
-            let thread = event.thread.context("message event requires thread")?;
-            let person = event.person.context("message event requires person")?;
-            let project_path = resolve_project_arg(Path::new(&project))?;
+            let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
+            let person = resolve_gateway_person(&event)?;
             ensure_project_writer_available(&project_path)?;
             let context = build_context(&person, &thread, &event.text)?;
             let job = atelier_core::job::create_job(
@@ -959,7 +981,7 @@ fn handle_gateway_stream(stream: &mut TcpStream) -> Result<()> {
                 false,
             )?;
             run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
-            serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir})
+            serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir,"project":project,"thread":thread,"person":person})
         }
         _ => {
             write_json_response(stream, 404, serde_json::json!({"error":"not found"}))?;
@@ -967,6 +989,40 @@ fn handle_gateway_stream(stream: &mut TcpStream) -> Result<()> {
         }
     };
     write_json_response(stream, 200, response)
+}
+
+fn resolve_gateway_person(event: &atelier_core::gateway::GatewayMessageEvent) -> Result<String> {
+    if let Some(person) = &event.person {
+        return Ok(person.clone());
+    }
+    let external_user = event
+        .external_user
+        .as_deref()
+        .context("message event requires person or external_user")?;
+    atelier_core::gateway::resolve_person(&event.gateway, external_user)?
+        .map(|binding| binding.person)
+        .context("no person binding found for gateway user")
+}
+
+fn resolve_gateway_project_thread(
+    event: &atelier_core::gateway::GatewayMessageEvent,
+) -> Result<(String, PathBuf, String)> {
+    if let (Some(project), Some(thread)) = (&event.project, &event.thread) {
+        let project_path = resolve_project_arg(Path::new(project))?;
+        return Ok((project.clone(), project_path, thread.clone()));
+    }
+    let external_thread = event
+        .external_thread
+        .as_deref()
+        .context("message event requires project/thread or external_thread")?;
+    for project in atelier_core::registry::list_projects()? {
+        if let Some(binding) =
+            atelier_core::gateway::resolve_thread(&project.path, &event.gateway, external_thread)?
+        {
+            return Ok((project.name, project.path, binding.thread_id));
+        }
+    }
+    anyhow::bail!("no thread binding found for gateway thread")
 }
 
 fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, String)> {
