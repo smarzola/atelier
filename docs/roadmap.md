@@ -12,7 +12,7 @@ Next alpha work focuses on hardening the daemonized runtime and release readines
 - [x] Daemon command and daemon-hosted HTTP gateway.
 - [x] Daemon-owned work submission.
 - [x] CLI work submits to the daemon instead of spawning workers directly.
-- [ ] Prompt/completion notifications from daemon to gateways.
+- [x] Prompt/completion notifications from daemon to gateways.
 - [ ] Better session indexing.
 - [ ] Shared-project access controls.
 

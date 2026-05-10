@@ -158,6 +158,8 @@ Gateway-originated actions append JSON Lines audit events to `~/.atelier/gateway
 
 Atelier records app-server thread metadata in the Atelier thread's `codex-sessions.jsonl` file. That lineage stores the Codex app-server thread id, the job id, and the session path when Codex reports one. This keeps recovery and future resume UX grounded in Codex-native state rather than a parallel transcript store.
 
+Codex app-server messages are mirrored into the project-local thread event stream as bounded runtime events. Atelier records `agent_message_snapshot` events for observable progress and writes one `final_result` at turn completion. Gateways read the same stream and delivery cursors coalesce duplicate progress rather than building a separate gateway transcript.
+
 The default project concurrency policy is conservative single-writer: a new job refuses to start while another job in the same project is `running` or `waiting-for-prompt`. Parallel reads and future worktree-based write strategies can be added explicitly, but the default protects shared project folders from overlapping writes.
 
 A terminal passthrough mode can remain useful for local human work, but it is not the managed prompt-relay architecture.

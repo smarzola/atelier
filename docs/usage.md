@@ -332,6 +332,10 @@ curl -s http://127.0.0.1:8787/adapters/telegram/send-message \
   -d '{"chat_id":"1000","message_thread_id":"77","text":"Example notification"}'
 ```
 
+## Dogfood verification
+
+The thread-native flow was dogfooded against a temporary mock project with a fake Codex app-server on `PATH`. Two `atelier thread send` interactions in the same thread produced the shared CLI/API event stream (`job_started`, `agent_message_snapshot`, `final_result`, `job_succeeded`), recorded Codex session lineage, and wrote a project artifact. This verifies that CLI send/follow, daemon work submission, API event polling, Codex app-server lineage, and project-local artifacts all operate through the same thread model.
+
 ## Codex-native skills and MCP
 
 Atelier does not build a separate tool ecosystem when Codex already has one. Use project-local Codex-native files.

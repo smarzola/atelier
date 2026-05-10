@@ -244,10 +244,10 @@ A gateway message is resolved into four layers:
 Example:
 
 ```text
-/work example-project summarize the latest research notes
+atelier thread send example-project --thread thread-abc --as alice "summarize the latest research notes"
 ```
 
-Atelier resolves the sender to a person, loads only that person's memory, routes to `example-project`, resolves or creates an Atelier thread, creates a job folder, and invokes Codex in the project root.
+Atelier resolves the sender to a person, loads only that person's memory, routes to `example-project`, resolves the Atelier thread, and submits the message through the shared thread interaction service. That service may answer a pending prompt, queue the message behind a running job, or create a new job folder and invoke Codex in the project root.
 
 ### Gateway thread bindings
 

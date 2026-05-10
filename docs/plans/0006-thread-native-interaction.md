@@ -637,13 +637,16 @@ gh run list --limit 5
 gh run watch <run-id> --exit-status
 ```
 
-## Open design questions
+## Implementation outcome
 
-1. Should `atelier work` remain the main public command, or should docs transition to `atelier thread send` with `work` as shorthand?
-2. Should queued messages auto-drain after the current job succeeds, or require explicit confirmation in early alpha?
-3. How much of Codex app-server message output is stable enough to expose as progress events versus only final snapshots?
-4. Should API streaming use server-sent events later, or is polling enough for the alpha?
-5. How should gateway prompt replies handle ambiguous human text beyond conservative `approve`/`decline` commands?
+Issue #12 is implemented as a unified thread-native model across the CLI, local API, and Telegram adapter:
+
+- `atelier thread send` is the preferred ongoing workflow; `atelier work` remains a compatibility shorthand for starting managed work.
+- Queued messages are persisted and surfaced with `queued_message_ready`; early alpha intentionally does not auto-drain them into surprise writes.
+- Codex app-server output is exposed as `agent_message_snapshot` and `final_result` events. The gateway publisher coalesces progress instead of sending token-by-token updates.
+- API output uses polling through `GET /events?...&after=<sequence>` for alpha. Server-sent events can be added later without changing the event file model.
+- Thread prompt replies support conservative approval text (`approve`/`decline`/`cancel`). Structured prompt answers still use explicit prompt commands.
+
 
 ## Documentation updates required after implementation
 
