@@ -1,6 +1,10 @@
 # Rust
 /target/
 
+# Atelier local dogfood/runtime state. Project-local runtime artifacts are
+# intentionally inspectable, but should not be committed by default.
+.atelier/
+
 # Editor and OS
 .DS_Store
 .idea/
