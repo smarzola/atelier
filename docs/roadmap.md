@@ -110,6 +110,11 @@ Expected behavior:
 - [x] Enforce a conservative single-writer managed-work policy per project.
 - [x] Validate prompt response decisions and support text/JSON payload responses.
 - [x] Add job show inspection and durable managed-worker stdout/stderr logs.
+- [x] Resolve registered project aliases for work/jobs/prompts/sessions.
+- [x] Add global status dashboard across registered projects.
+- [x] Add cross-project prompt inbox.
+- [x] Add project-scoped bulk recovery for idle-timeout and worker-lost jobs.
+- [x] Bootstrap an Atelier home workspace with starter Codex-native skills.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.

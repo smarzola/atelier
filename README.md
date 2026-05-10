@@ -115,7 +115,7 @@ Gateway / CLI / API
 
 ## Status
 
-Early implementation phase. The local CLI can initialize projects and threads, inject person-scoped context into Codex work, run managed Codex app-server jobs, relay structured prompts through durable prompt files, inspect jobs, recover idle jobs from saved context, reconcile lost workers, and preserve Codex app-server thread lineage.
+Early implementation phase. The local CLI can initialize home/project workspaces and threads, resolve registered project aliases, inject person-scoped context into Codex work, run managed Codex app-server jobs, relay structured prompts through durable prompt files, show a global status dashboard, inspect jobs, recover idle/lost jobs from saved context, reconcile lost workers, list cross-project prompt inboxes, and preserve Codex app-server thread lineage.
 
 ## Runtime requirements
 

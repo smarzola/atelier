@@ -108,15 +108,21 @@ Current managed work mode starts a background Atelier worker for each managed jo
 Useful commands:
 
 ```bash
-atelier work <project> --thread <thread> --as <person> --managed "task"
-atelier jobs list <project>
-atelier jobs show <project> <job-id>
-atelier prompts list <project>
-atelier prompts show <project> <prompt-id>
-atelier prompts respond <project> <prompt-id> accept
-atelier prompts respond <project> <prompt-id> answer --text "example answer"
-atelier prompts respond <project> <prompt-id> accept --json '{"decision":"accept"}'
-atelier jobs recover <project> <job-id>
+atelier home init <home-project-path>
+atelier projects add <name> <project-path>
+atelier status
+atelier work <project-or-alias> --thread <thread> --as <person> --managed "task"
+atelier jobs list <project-or-alias>
+atelier jobs show <project-or-alias> <job-id>
+atelier prompts inbox
+atelier prompts list <project-or-alias>
+atelier prompts show <project-or-alias> <prompt-id>
+atelier prompts respond <project-or-alias> <prompt-id> accept
+atelier prompts respond <project-or-alias> <prompt-id> answer --text "example answer"
+atelier prompts respond <project-or-alias> <prompt-id> accept --json '{"decision":"accept"}'
+atelier jobs recover <project-or-alias> <job-id>
+atelier jobs recover <project-or-alias> --all-idle
+atelier jobs recover <project-or-alias> --all-worker-lost
 ```
 
 Managed workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the managed worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
