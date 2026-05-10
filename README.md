@@ -6,7 +6,7 @@ Atelier is intentionally opinionated. It does not try to be a general model rout
 
 ## Status: alpha
 
-Atelier is in alpha. The core local CLI and local gateway are usable for dogfooding, but interfaces may still change before stable releases.
+Atelier is in alpha. The core local CLI and daemon-hosted gateway are usable for dogfooding, but interfaces may still change before stable releases.
 
 Alpha includes:
 
@@ -52,16 +52,38 @@ atelier project init ~/example-project --name example-project
 atelier projects add example-project ~/example-project
 ```
 
-### 3. Create a thread and run work
+### 3. Start the daemon
+
+Atelier-managed work requires an always-alive daemon. The daemon hosts gateway endpoints and supervises managed workers. Keep this running in its own terminal.
+
+```bash
+atelier daemon run --listen 127.0.0.1:8787
+```
+
+For adapter or reverse-proxy use, add bearer auth:
+
+```bash
+ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
+  --listen 127.0.0.1:8787 \
+  --auth-token-env ATELIER_GATEWAY_TOKEN
+```
+
+### 4. Create a thread and run managed work
+
+In another terminal:
 
 ```bash
 THREAD=$(atelier thread new example-project "First task" --porcelain)
-atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
-# In another terminal, run: atelier daemon run --listen 127.0.0.1:8787
 atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
 ```
 
-### 4. Inspect runtime state
+Dry-runs and inspection commands can run without the daemon because they do not start managed workers:
+
+```bash
+atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
+```
+
+### 5. Inspect runtime state
 
 ```bash
 atelier status
@@ -70,33 +92,20 @@ atelier prompts inbox
 atelier sessions example-project --thread "$THREAD"
 ```
 
-### 5. Run the daemon
-
-Atelier-managed work requires an always-alive daemon. The daemon hosts gateway endpoints and supervises managed workers.
-
-```bash
-ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
-  --listen 127.0.0.1:8787 \
-  --auth-token-env ATELIER_GATEWAY_TOKEN
-```
+### 6. Use the daemon API
 
 Project registry API:
-
 ```bash
-curl -s http://127.0.0.1:8787/projects \
-  -H "Authorization: Bearer replace-with-secret"
+curl -s http://127.0.0.1:8787/projects
 
 curl -s http://127.0.0.1:8787/projects \
-  -H "Authorization: Bearer replace-with-secret" \
   -H 'Content-Type: application/json' \
   -d '{"name":"api-project","path":"/tmp/api-project"}'
 ```
 
 Messages can be routed through the generic event endpoint:
-
 ```bash
 curl -s http://127.0.0.1:8787/events/message \
-  -H "Authorization: Bearer replace-with-secret" \
   -H 'Content-Type: application/json' \
   -d '{"gateway":"example-gateway","project":"example-project","thread":"thread-example","person":"alice","text":"Run this task"}'
 ```

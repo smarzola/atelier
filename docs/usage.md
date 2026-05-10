@@ -1,6 +1,6 @@
 # Atelier Usage Guide
 
-This guide documents the current alpha CLI and local gateway workflows.
+This guide documents the current alpha CLI and daemon-hosted gateway workflows.
 
 ## Concepts
 
@@ -9,6 +9,14 @@ This guide documents the current alpha CLI and local gateway workflows.
 - **Person:** a human identity. Person memory is global and describes the person, not projects.
 - **Thread:** an Atelier workstream inside a project. Gateway threads and Codex session lineage bind to Atelier threads.
 - **Job:** one Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project.
+
+## Operating modes
+
+Atelier has three modes. Read these first because they determine whether the daemon is required:
+
+1. **Raw Codex:** `cd project && codex`. This is outside Atelier orchestration.
+2. **Atelier setup and inspection:** initialization, registry, thread creation, dry-run, job listing, prompt inspection, and session listing can run from the CLI without the daemon.
+3. **Atelier-managed work:** anything that starts managed Codex work requires `atelier daemon run`. The daemon is the orchestrator and contains the gateway.
 
 ## Install Atelier
 
@@ -51,7 +59,7 @@ List registered projects:
 atelier projects list
 ```
 
-A running gateway reads the project registry from disk on each request. Projects added with `atelier projects add` are visible to the gateway immediately; no gateway restart is required.
+A running daemon reads the project registry from disk on each request. Projects added with `atelier projects add` are visible to the daemon-hosted gateway immediately; no restart is required.
 
 ## People and person memory
 
@@ -68,105 +76,6 @@ atelier people memory set alice "Prefers concise status updates."
 ```
 
 Person memory is injected into Atelier-launched Codex work for the selected person. It must not store project facts.
-
-## Threads and sessions
-
-Create a thread:
-
-```bash
-THREAD=$(atelier thread new example-project "Release preparation" --porcelain)
-```
-
-List threads:
-
-```bash
-atelier threads list example-project
-```
-
-Show Codex session lineage for a thread:
-
-```bash
-atelier sessions example-project --thread "$THREAD"
-```
-
-## Work
-
-Dry-run a Codex invocation without executing it:
-
-```bash
-atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
-```
-
-Run managed Codex app-server work through the daemon:
-
-```bash
-atelier daemon run --listen 127.0.0.1:8787
-atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
-```
-
-If the daemon is not listening on the default URL, pass `--daemon-url` or set `ATELIER_DAEMON_URL`.
-
-Continue a Codex session through Atelier:
-
-```bash
-atelier continue example-project --thread "$THREAD" --as alice --last "Continue the previous task"
-```
-
-Atelier does not rewrite Codex home or project config to inject runtime context. It passes explicit context into the invocation.
-
-## Jobs and prompts
-
-Show global runtime state:
-
-```bash
-atelier status
-```
-
-List jobs in a project:
-
-```bash
-atelier jobs list example-project
-```
-
-Show job details and log previews:
-
-```bash
-atelier jobs show example-project <job-id>
-```
-
-List pending prompts across projects:
-
-```bash
-atelier prompts inbox
-```
-
-List prompts in a project:
-
-```bash
-atelier prompts list example-project
-```
-
-Show a prompt:
-
-```bash
-atelier prompts show example-project <prompt-id>
-```
-
-Respond to a prompt:
-
-```bash
-atelier prompts respond example-project <prompt-id> accept
-atelier prompts respond example-project <prompt-id> answer --text "Example answer"
-atelier prompts respond example-project <prompt-id> accept --json '{"decision":"accept"}'
-```
-
-Recover idle or lost managed jobs:
-
-```bash
-atelier jobs recover example-project <job-id>
-atelier jobs recover example-project --all-idle
-atelier jobs recover example-project --all-worker-lost
-```
 
 ## Daemon and hosted gateway
 
@@ -239,6 +148,105 @@ Generic message event:
 curl -s http://127.0.0.1:8787/events/message \
   -H 'Content-Type: application/json' \
   -d '{"gateway":"example-gateway","project":"example-project","thread":"thread-example","person":"alice","text":"Run this task"}'
+```
+
+
+## Threads and sessions
+
+Create a thread:
+
+```bash
+THREAD=$(atelier thread new example-project "Release preparation" --porcelain)
+```
+
+List threads:
+
+```bash
+atelier threads list example-project
+```
+
+Show Codex session lineage for a thread:
+
+```bash
+atelier sessions example-project --thread "$THREAD"
+```
+
+## Work
+
+Dry-run a Codex invocation without executing it:
+
+```bash
+atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
+```
+
+Run managed Codex app-server work. This requires the daemon from the previous section to already be running:
+
+```bash
+atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
+```
+
+If the daemon is not listening on the default URL, pass `--daemon-url` or set `ATELIER_DAEMON_URL`.
+
+Continue a Codex session through Atelier:
+
+```bash
+atelier continue example-project --thread "$THREAD" --as alice --last "Continue the previous task"
+```
+
+Atelier does not rewrite Codex home or project config to inject runtime context. It passes explicit context into the invocation.
+
+## Jobs and prompts
+
+Show global runtime state:
+
+```bash
+atelier status
+```
+
+List jobs in a project:
+
+```bash
+atelier jobs list example-project
+```
+
+Show job details and log previews:
+
+```bash
+atelier jobs show example-project <job-id>
+```
+
+List pending prompts across projects:
+
+```bash
+atelier prompts inbox
+```
+
+List prompts in a project:
+
+```bash
+atelier prompts list example-project
+```
+
+Show a prompt:
+
+```bash
+atelier prompts show example-project <prompt-id>
+```
+
+Respond to a prompt:
+
+```bash
+atelier prompts respond example-project <prompt-id> accept
+atelier prompts respond example-project <prompt-id> answer --text "Example answer"
+atelier prompts respond example-project <prompt-id> accept --json '{"decision":"accept"}'
+```
+
+Recover idle or lost managed jobs:
+
+```bash
+atelier jobs recover example-project <job-id>
+atelier jobs recover example-project --all-idle
+atelier jobs recover example-project --all-worker-lost
 ```
 
 ### Gateway bindings
