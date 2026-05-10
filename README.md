@@ -69,15 +69,14 @@ atelier prompts inbox
 atelier sessions example-project --thread "$THREAD"
 ```
 
-### 5. Run the long-lived runtime
+### 5. Run the daemon
 
-Atelier-managed work requires an always-alive daemon. The current alpha command is still named `gateway serve`, but architecturally this is the daemonized runtime: it hosts the gateway and supervises workers. A future release should expose this as `atelier daemon run`.
+Atelier-managed work requires an always-alive daemon. The daemon hosts gateway endpoints and supervises managed workers.
 
 ```bash
-ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \
+ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
   --listen 127.0.0.1:8787 \
-  --auth-token-env ATELIER_GATEWAY_TOKEN \
-  --supervise-workers
+  --auth-token-env ATELIER_GATEWAY_TOKEN
 ```
 
 Project registry API:

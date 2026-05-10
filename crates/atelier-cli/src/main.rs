@@ -58,6 +58,11 @@ enum Command {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+    /// Run and manage the always-alive Atelier orchestration daemon.
+    Daemon {
+        #[command(subcommand)]
+        command: DaemonCommand,
+    },
     /// Manage gateway bindings to Atelier threads.
     Gateway {
         #[command(subcommand)]
@@ -228,6 +233,25 @@ enum PeopleMemoryCommand {
         id: String,
         /// Person memory body.
         memory: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DaemonCommand {
+    /// Run the Atelier daemon with hosted gateway and worker supervision.
+    Run {
+        /// Listen address for the daemon-hosted HTTP gateway, for example 127.0.0.1:8787.
+        #[arg(long, default_value = "127.0.0.1:8787")]
+        listen: String,
+        /// Allow listening on non-loopback addresses.
+        #[arg(long)]
+        allow_non_loopback: bool,
+        /// Require Authorization: Bearer *** using this environment variable.
+        #[arg(long)]
+        auth_token_env: Option<String>,
+        /// Worker supervision interval in milliseconds.
+        #[arg(long, default_value_t = 5_000)]
+        supervision_interval_millis: u64,
     },
 }
 
@@ -503,6 +527,22 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Daemon { command } => match command {
+            DaemonCommand::Run {
+                listen,
+                allow_non_loopback,
+                auth_token_env,
+                supervision_interval_millis,
+            } => {
+                serve_gateway(
+                    &listen,
+                    allow_non_loopback,
+                    auth_token_env,
+                    true,
+                    supervision_interval_millis,
+                )?;
+            }
+        },
         Command::Gateway { command } => match command {
             GatewayCommand::Serve {
                 listen,

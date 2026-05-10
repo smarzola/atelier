@@ -165,28 +165,29 @@ atelier jobs recover example-project --all-idle
 atelier jobs recover example-project --all-worker-lost
 ```
 
-## Gateway
+## Daemon and hosted gateway
 
-Start the local gateway:
+Start the always-alive Atelier daemon:
 
 ```bash
-atelier gateway serve --listen 127.0.0.1:8787
+atelier daemon run --listen 127.0.0.1:8787
 ```
 
 For adapter or reverse-proxy use, require bearer auth:
 
 ```bash
-ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \
+ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
   --listen 127.0.0.1:8787 \
-  --auth-token-env ATELIER_GATEWAY_TOKEN \
-  --supervise-workers
+  --auth-token-env ATELIER_GATEWAY_TOKEN
 ```
 
-The gateway refuses non-loopback addresses unless explicitly allowed:
+The daemon refuses non-loopback addresses unless explicitly allowed:
 
 ```bash
-atelier gateway serve --listen 0.0.0.0:8787 --allow-non-loopback
+atelier daemon run --listen 0.0.0.0:8787 --allow-non-loopback
 ```
+
+`atelier gateway serve` remains available as a compatibility/developer command for the same HTTP surface, but product usage should run the daemon.
 
 ### Gateway endpoints
 
