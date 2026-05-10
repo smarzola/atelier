@@ -1448,10 +1448,89 @@ fn parse_loopback_http_url(base_url: &str) -> Result<(String, u16)> {
 
 fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {
     let project_path = resolve_project_arg(Path::new(&request.project))?;
-    ensure_project_writer_available(&project_path)?;
+    handle_thread_message(ThreadMessageRuntimeRequest {
+        project: request.project,
+        project_path,
+        thread: request.thread,
+        person: request.person,
+        text: request.text,
+        idle_timeout_seconds: request.idle_timeout_seconds,
+        audit_action: "work_started",
+        gateway: None,
+        external_thread: None,
+        external_user: None,
+    })
+}
+
+fn handle_gateway_message_event(
+    event: atelier_core::gateway::GatewayMessageEvent,
+) -> Result<serde_json::Value> {
+    let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
+    let person = resolve_gateway_person(&event)?;
+    handle_thread_message(ThreadMessageRuntimeRequest {
+        project,
+        project_path,
+        thread,
+        person,
+        text: event.text,
+        idle_timeout_seconds: 300,
+        audit_action: "message_started",
+        gateway: Some(event.gateway),
+        external_thread: event.external_thread,
+        external_user: event.external_user,
+    })
+}
+
+struct ThreadMessageRuntimeRequest {
+    project: String,
+    project_path: PathBuf,
+    thread: String,
+    person: String,
+    text: String,
+    idle_timeout_seconds: u64,
+    audit_action: &'static str,
+    gateway: Option<String>,
+    external_thread: Option<String>,
+    external_user: Option<String>,
+}
+
+fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
+    let decision = atelier_core::thread_interaction::decide_thread_interaction(
+        &request.project_path,
+        &request.thread,
+        &request.text,
+    )?;
+    match decision {
+        atelier_core::thread_interaction::ThreadInteractionDecision::QueueForRunningJob {
+            job_id,
+        } => Ok(serde_json::json!({
+            "status":"queued",
+            "job_id":job_id,
+            "project":request.project,
+            "thread":request.thread,
+            "person":request.person
+        })),
+        atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt { prompt_id } => {
+            Ok(serde_json::json!({
+                "status":"prompt-reply-required",
+                "prompt_id":prompt_id,
+                "project":request.project,
+                "thread":request.thread,
+                "person":request.person
+            }))
+        }
+        atelier_core::thread_interaction::ThreadInteractionDecision::ContinueSession { .. }
+        | atelier_core::thread_interaction::ThreadInteractionDecision::StartJob => {
+            start_thread_message_job(request)
+        }
+    }
+}
+
+fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
+    ensure_project_writer_available(&request.project_path)?;
     let context = build_context(&request.person, &request.thread, &request.text)?;
     let job = atelier_core::job::create_job(
-        &project_path,
+        &request.project_path,
         &request.thread,
         &request.person,
         &request.text,
@@ -1460,16 +1539,19 @@ fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {
     )?;
     run_managed_app_server_job(
         &job,
-        &project_path,
+        &request.project_path,
         &request.thread,
         &request.person,
         &context,
         request.idle_timeout_seconds,
     )?;
     append_gateway_audit_event(serde_json::json!({
-        "action": "work_started",
+        "action": request.audit_action,
+        "gateway": request.gateway,
+        "external_thread": request.external_thread,
+        "external_user": request.external_user,
         "project": request.project,
-        "project_path": project_path,
+        "project_path": request.project_path,
         "thread": request.thread,
         "person": request.person,
         "job_id": job.id,
@@ -1483,39 +1565,6 @@ fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {
         "thread":request.thread,
         "person":request.person
     }))
-}
-
-fn handle_gateway_message_event(
-    event: atelier_core::gateway::GatewayMessageEvent,
-) -> Result<serde_json::Value> {
-    let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
-    let person = resolve_gateway_person(&event)?;
-    ensure_project_writer_available(&project_path)?;
-    let context = build_context(&person, &thread, &event.text)?;
-    let job = atelier_core::job::create_job(
-        &project_path,
-        &thread,
-        &person,
-        &event.text,
-        &context,
-        false,
-    )?;
-    run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
-    append_gateway_audit_event(serde_json::json!({
-        "action": "message_started",
-        "gateway": event.gateway,
-        "external_thread": event.external_thread,
-        "external_user": event.external_user,
-        "project": project,
-        "project_path": project_path,
-        "thread": thread,
-        "person": person,
-        "job_id": job.id,
-        "result": "started"
-    }))?;
-    Ok(
-        serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir,"project":project,"thread":thread,"person":person}),
-    )
 }
 
 fn append_gateway_audit_event(mut event: serde_json::Value) -> Result<()> {
