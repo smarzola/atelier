@@ -1,3 +1,4 @@
+use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -1051,13 +1052,22 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         ("GET", "/prompts") => gateway_prompts_json()?,
         ("POST", "/prompts/respond") => {
             let request: GatewayPromptResponseRequest = serde_json::from_str(&body)?;
+            let project_path = resolve_project_arg(Path::new(&request.project))?;
             respond_to_prompt(
-                &resolve_project_arg(Path::new(&request.project))?,
+                &project_path,
                 &request.prompt_id,
                 &request.decision,
                 request.text,
                 request.json,
             )?;
+            append_gateway_audit_event(serde_json::json!({
+                "action": "prompt_response",
+                "project": request.project,
+                "project_path": project_path,
+                "prompt_id": request.prompt_id,
+                "decision": request.decision,
+                "result": "recorded"
+            }))?;
             serde_json::json!({"status":"recorded","prompt_id":request.prompt_id})
         }
         ("POST", "/events/message") => {
@@ -1092,9 +1102,46 @@ fn handle_gateway_message_event(
         false,
     )?;
     run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
+    append_gateway_audit_event(serde_json::json!({
+        "action": "message_started",
+        "gateway": event.gateway,
+        "external_thread": event.external_thread,
+        "external_user": event.external_user,
+        "project": project,
+        "project_path": project_path,
+        "thread": thread,
+        "person": person,
+        "job_id": job.id,
+        "result": "started"
+    }))?;
     Ok(
         serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir,"project":project,"thread":thread,"person":person}),
     )
+}
+
+fn append_gateway_audit_event(mut event: serde_json::Value) -> Result<()> {
+    if let Some(object) = event.as_object_mut() {
+        object.insert(
+            "timestamp_unix_seconds".to_string(),
+            serde_json::json!(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            ),
+        );
+    }
+    let audit_path = atelier_core::people::atelier_home().join("gateway/audit.jsonl");
+    if let Some(parent) = audit_path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&audit_path)
+        .with_context(|| format!("open {}", audit_path.display()))?;
+    writeln!(file, "{}", serde_json::to_string(&event)?)
+        .with_context(|| format!("write {}", audit_path.display()))
 }
 
 fn telegram_update_to_gateway_event(

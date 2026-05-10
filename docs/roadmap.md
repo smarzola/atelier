@@ -120,9 +120,9 @@ Expected behavior:
 - [x] Default the HTTP gateway to loopback-only and support bearer-token authentication for adapter/reverse-proxy use.
 - [x] Add an initial Telegram webhook adapter that translates message updates into generic gateway events.
 - [x] Add optional gateway worker supervision that periodically reconciles dead managed workers.
+- [x] Add file-first audit logs for gateway-originated prompt responses and message-start actions.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
-- [ ] Audit logs.
 - [ ] Cross-platform packaging.
 - [ ] Documentation site.
 - [ ] CI and release automation.

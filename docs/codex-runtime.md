@@ -139,6 +139,8 @@ atelier jobs recover <project-or-alias> --all-worker-lost
 
 Managed workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the managed worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
 
+Gateway-originated actions append JSON Lines audit events to `~/.atelier/gateway/audit.jsonl` or `$ATELIER_HOME/gateway/audit.jsonl`. The audit log records prompt responses and message-start actions with gateway identifiers, resolved project/thread/person values, job or prompt ids, result, and a Unix timestamp while keeping the project folder as the source of project knowledge.
+
 Atelier records managed app-server thread metadata in the Atelier thread's `codex-sessions.jsonl` file. That lineage stores the Codex app-server thread id, the job id, and the session path when Codex reports one. This keeps recovery and future resume UX grounded in Codex-native state rather than a parallel transcript store.
 
 The default project concurrency policy is conservative single-writer: a new managed job refuses to start while another managed job in the same project is `running` or `waiting-for-prompt`. Parallel reads and future worktree-based write strategies can be added explicitly, but the default protects shared project folders from overlapping writes.

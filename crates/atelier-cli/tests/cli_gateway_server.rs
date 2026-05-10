@@ -39,6 +39,11 @@ fn gateway_health_status_jobs_prompts_and_respond_endpoints_work() {
     let response_file = project.join(".atelier/jobs/job-gateway/responses/prompt-gateway.json");
     let response_text = std::fs::read_to_string(response_file).expect("read response file");
     assert!(response_text.contains("gateway answer"));
+    let audit_event = latest_audit_event(&temp, "prompt_response");
+    assert_eq!(audit_event["action"], "prompt_response");
+    assert_eq!(audit_event["project"], "example-project");
+    assert_eq!(audit_event["prompt_id"], "prompt-gateway");
+    assert_eq!(audit_event["result"], "recorded");
 
     let _ = server.kill();
 }
@@ -187,6 +192,15 @@ fn telegram_adapter_message_update_starts_managed_work_through_generic_gateway()
     assert_eq!(response["thread"], thread_id);
     assert_eq!(response["person"], "alice");
     wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+    let audit_event = latest_audit_event(&temp, "message_started");
+    assert_eq!(audit_event["action"], "message_started");
+    assert_eq!(audit_event["gateway"], "telegram");
+    assert_eq!(audit_event["external_thread"], "chat:1000:topic:77");
+    assert_eq!(audit_event["external_user"], "2000");
+    assert_eq!(audit_event["project"], "example-project");
+    assert_eq!(audit_event["thread"], thread_id);
+    assert_eq!(audit_event["person"], "alice");
+    assert_eq!(audit_event["result"], "started");
 
     let _ = server.kill();
 }
@@ -285,6 +299,17 @@ fn wait_for_job_status(project: &std::path::Path, job_id: &str, expected: &str) 
         );
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn latest_audit_event(temp: &tempfile::TempDir, action: &str) -> Value {
+    let audit_path = temp.path().join(".atelier/gateway/audit.jsonl");
+    let content = std::fs::read_to_string(audit_path).expect("read audit log");
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .rev()
+        .find(|event| event["action"] == action)
+        .unwrap_or_else(|| panic!("missing audit event for action {action}"))
 }
 
 fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
