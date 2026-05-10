@@ -19,7 +19,8 @@ Alpha includes:
 - a loopback-first HTTP gateway with optional bearer auth;
 - generic gateway message/prompt/project endpoints;
 - an initial Telegram webhook adapter;
-- worker supervision and gateway audit logs.
+- worker supervision and gateway audit logs;
+- an accepted daemon architecture decision: Atelier-managed work requires an always-alive daemon, and the gateway is hosted inside that daemon.
 
 ## Quickstart
 
@@ -68,7 +69,9 @@ atelier prompts inbox
 atelier sessions example-project --thread "$THREAD"
 ```
 
-### 5. Run the local gateway
+### 5. Run the long-lived runtime
+
+Atelier-managed work requires an always-alive daemon. The current alpha command is still named `gateway serve`, but architecturally this is the daemonized runtime: it hosts the gateway and supervises workers. A future release should expose this as `atelier daemon run`.
 
 ```bash
 ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \

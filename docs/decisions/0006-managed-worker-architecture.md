@@ -2,17 +2,17 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR 0011: Daemon is the Atelier orchestrator](0011-daemon-is-atelier-orchestrator.md).
 
 ## Context
 
-Atelier managed work uses Codex `app-server` so prompt requests can be surfaced as durable Atelier prompt records and answered later. The first implementation runs from the CLI and starts a hidden Atelier worker process per managed job. The worker owns one Codex app-server child process and writes file-first artifacts into the job directory.
+Atelier managed work uses Codex `app-server` so prompt requests can be surfaced as durable Atelier prompt records and answered later. The first implementation ran from the CLI and started a hidden Atelier worker process per managed job. The worker owns one Codex app-server child process and writes file-first artifacts into the job directory.
 
-Future gateway work will need a daemon that can supervise workers over longer periods, but the repository already needs a concrete local architecture that is inspectable, testable, and dogfoodable without requiring a daemon.
+This local model proved the worker/job file contract, but it is not the final product architecture. Atelier is an orchestrator, so managed Atelier work requires an always-alive daemon. Raw `cd project && codex` remains valid outside Atelier-managed work.
 
-## Decision
+## Historical decision
 
-Atelier will keep the current local model as the first managed-worker architecture:
+The first alpha implementation used this local model:
 
 - `atelier work --managed` creates a job directory and spawns `atelier __managed-worker`.
 - The worker starts `codex app-server` and owns its stdin/stdout protocol stream.
@@ -22,7 +22,7 @@ Atelier will keep the current local model as the first managed-worker architectu
 - The launcher records `worker.json`, `worker-stdout.log`, and `worker-stderr.log`.
 - The job directory remains the durable source of truth for status, context, request, prompts, responses, logs, and result.
 
-A later daemon may supervise these workers and provide an API/gateway surface, but the daemon must preserve the same file-first job contract instead of replacing it with opaque process state.
+ADR 0011 changes the owner: the daemon should start and supervise these workers, while preserving the same file-first job contract instead of replacing it with opaque process state.
 
 ## Consequences
 

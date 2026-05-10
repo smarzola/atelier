@@ -30,8 +30,13 @@ Atelier should not become a second model runtime unless a future decision record
 
 ## High-level flow
 
+Atelier-managed work flows through the daemon. The daemon is the always-alive orchestration layer; gateways are hosted interfaces inside it, and CLI work-starting commands submit to it. Raw `cd project && codex` remains valid, but it is not an Atelier-managed run.
+
 ```text
 Gateway / CLI / API
+        |
+        v
+atelier daemon
         |
         v
  Incoming event
@@ -46,7 +51,7 @@ Gateway / CLI / API
  Job manager -----------> .atelier/jobs/<job-id>/
         |
         v
- Codex adapter ---------> codex exec / codex resume
+ Managed Codex worker --> codex app-server inside the project root
 ```
 
 ## Project folder contract

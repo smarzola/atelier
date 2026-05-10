@@ -64,4 +64,4 @@ Trade-offs:
 - Add gateway identity binding commands for external users to people.
 - Add access control before non-local deployment.
 - Add Telegram adapter once the generic gateway event model is stable.
-- Add a daemon/supervisor if long-lived worker management outgrows CLI-spawned workers.
+- Move the gateway under `atelier daemon run` per [ADR 0011](0011-daemon-is-atelier-orchestrator.md); the gateway is an interface hosted by the daemon, not the orchestration layer itself.
