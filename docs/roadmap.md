@@ -8,6 +8,8 @@
 - [x] Record context injection decision.
 - [x] Create initial public GitHub repository.
 - [x] Plan the Atelier home skills pack: `docs/plans/0001-home-skills-pack.md`.
+- [x] Document external Codex runtime and CI strategy: `docs/codex-runtime.md`.
+- [x] Record Codex external runtime decision: `docs/decisions/0004-codex-external-runtime.md`.
 
 ## Phase 1: Minimal local CLI
 

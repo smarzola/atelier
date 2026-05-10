@@ -1,0 +1,141 @@
+# Codex Runtime
+
+Atelier uses Codex CLI as an external runtime. It does not bundle Codex initially.
+
+## Local installation
+
+Install Codex using an upstream-supported method:
+
+```bash
+npm i -g @openai/codex
+# or
+brew install --cask codex
+```
+
+Verify:
+
+```bash
+codex --version
+codex --help
+```
+
+## Authentication
+
+Codex supports ChatGPT login and OpenAI API key login.
+
+Interactive login:
+
+```bash
+codex login
+```
+
+Device-code login, useful on headless machines:
+
+```bash
+codex login --device-auth
+```
+
+API key login, useful for programmatic environments:
+
+```bash
+printenv OPENAI_API_KEY | codex login --with-api-key
+```
+
+Codex caches login details in its own supported storage, such as `~/.codex/auth.json` or the operating system credential store. Treat those credentials like secrets.
+
+## Atelier configuration
+
+Atelier should discover Codex from `PATH` by default:
+
+```toml
+[codex]
+binary = "codex"
+minimum_version = "0.130.0"
+```
+
+A local override may point at a custom binary:
+
+```bash
+ATELIER_CODEX=/path/to/codex atelier work example-project "..."
+```
+
+Atelier should record Codex metadata for every real job:
+
+```json
+{
+  "codex_binary": "/usr/local/bin/codex",
+  "codex_version": "0.130.0",
+  "invocation": ["codex", "exec", "--cd", "/home/example/project"]
+}
+```
+
+## Doctor checks
+
+`atelier doctor` should check:
+
+- Codex binary exists;
+- `codex --version` succeeds;
+- version is within the supported range;
+- Codex help output contains required subcommands such as `exec` and `resume`;
+- project root exists;
+- project has expected Codex-native files when relevant;
+- optional live Codex smoke test passes only when explicitly requested.
+
+Doctor should not silently write Codex config or credentials.
+
+## CI testing strategy
+
+Normal CI must not require live Codex authentication or spend model/API credits.
+
+Default tests should use a fake Codex executable placed first on `PATH` or configured through `ATELIER_CODEX`.
+
+The fake Codex should support enough behavior for deterministic tests:
+
+```text
+fake-codex --version
+fake-codex exec ...
+fake-codex exec resume --last ...
+fake-codex exec resume <session-id> ...
+fake-codex resume --last
+```
+
+It should record:
+
+- argv;
+- working directory;
+- stdin when used;
+- selected environment variables safe for tests.
+
+It should return deterministic output, including a fake session id.
+
+Tests should verify:
+
+- command construction;
+- project root selection;
+- prompt/context injection;
+- resume command construction;
+- job metadata recording;
+- error handling when Codex is missing;
+- error handling when Codex exits non-zero.
+
+## Optional real Codex integration test
+
+A separate workflow may run real Codex only when secrets are configured and the workflow is manually triggered.
+
+Example policy:
+
+- not required for pull requests;
+- not required for normal pushes;
+- manual `workflow_dispatch` only;
+- uses an OpenAI API key secret or preconfigured runner credentials;
+- runs a tiny read-only smoke prompt in a disposable repository;
+- records no private data.
+
+Example smoke prompt:
+
+```bash
+codex exec --sandbox read-only -c approval_policy='"never"' \
+  "Reply with exactly: ATELIER_CODEX_OK"
+```
+
+The smoke test should fail closed if authentication is missing, but it should not block the normal CI suite.

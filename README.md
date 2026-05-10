@@ -117,6 +117,10 @@ Gateway / CLI / API
 
 Early design and bootstrap phase.
 
+## Runtime requirements
+
+Atelier uses Codex CLI as an external runtime. Install and authenticate Codex separately, then let Atelier discover it from `PATH` or a configured binary path. See [Codex Runtime](docs/codex-runtime.md).
+
 ## Next plans
 
 - [Atelier Home Skills Pack](docs/plans/0001-home-skills-pack.md) — first Codex-native skills that let Atelier understand, operate, maintain, and improve itself from the home workspace and project folders.
