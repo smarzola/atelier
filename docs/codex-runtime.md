@@ -114,7 +114,8 @@ atelier status
 atelier gateway serve --listen 127.0.0.1:8787
 ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \
   --listen 127.0.0.1:8787 \
-  --auth-token-env ATELIER_GATEWAY_TOKEN
+  --auth-token-env ATELIER_GATEWAY_TOKEN \
+  --supervise-workers
 atelier gateway bind <project-or-alias> --thread <thread> --gateway example-gateway --external-thread external-thread
 atelier gateway bind <project-or-alias> --thread <thread> --gateway telegram --external-thread chat:1000:topic:77
 atelier gateway bind-person --gateway example-gateway --external-user external-user --person alice

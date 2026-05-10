@@ -2,6 +2,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -242,6 +243,12 @@ enum GatewayCommand {
         /// Require Authorization: Bearer <token> using this environment variable.
         #[arg(long)]
         auth_token_env: Option<String>,
+        /// Periodically reconcile worker state while serving the gateway.
+        #[arg(long)]
+        supervise_workers: bool,
+        /// Worker supervision interval in milliseconds.
+        #[arg(long, default_value_t = 5_000)]
+        supervision_interval_millis: u64,
     },
     /// Bind an external gateway user to an Atelier person.
     BindPerson {
@@ -500,8 +507,16 @@ fn main() -> Result<()> {
                 listen,
                 allow_non_loopback,
                 auth_token_env,
+                supervise_workers,
+                supervision_interval_millis,
             } => {
-                serve_gateway(&listen, allow_non_loopback, auth_token_env)?;
+                serve_gateway(
+                    &listen,
+                    allow_non_loopback,
+                    auth_token_env,
+                    supervise_workers,
+                    supervision_interval_millis,
+                )?;
             }
             GatewayCommand::BindPerson {
                 gateway,
@@ -948,6 +963,8 @@ fn serve_gateway(
     listen: &str,
     allow_non_loopback: bool,
     auth_token_env: Option<String>,
+    supervise_workers: bool,
+    supervision_interval_millis: u64,
 ) -> Result<()> {
     validate_gateway_listen_address(listen, allow_non_loopback)?;
     let auth = GatewayAuth {
@@ -960,6 +977,11 @@ fn serve_gateway(
         },
     };
     let listener = TcpListener::bind(listen).with_context(|| format!("bind gateway {listen}"))?;
+    let supervisor_stop = if supervise_workers {
+        Some(start_worker_supervisor(supervision_interval_millis))
+    } else {
+        None
+    };
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
@@ -973,6 +995,27 @@ fn serve_gateway(
             }
             Err(error) => return Err(error).context("accept gateway connection"),
         }
+    }
+    drop(supervisor_stop);
+    Ok(())
+}
+
+fn start_worker_supervisor(interval_millis: u64) -> Arc<std::sync::atomic::AtomicBool> {
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    let interval = Duration::from_millis(interval_millis.max(10));
+    std::thread::spawn(move || {
+        while !thread_stop.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = reconcile_registered_project_workers();
+            std::thread::sleep(interval);
+        }
+    });
+    stop
+}
+
+fn reconcile_registered_project_workers() -> Result<()> {
+    for project in atelier_core::registry::list_projects()? {
+        let _ = list_jobs(&project.path)?;
     }
     Ok(())
 }

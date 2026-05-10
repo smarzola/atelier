@@ -228,6 +228,21 @@ fn gateway_requires_bearer_token_when_auth_token_env_is_set() {
 }
 
 #[test]
+fn gateway_supervisor_reconciles_dead_managed_workers_without_requests() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    write_running_job_with_dead_worker(&project, "job-dead-worker");
+
+    let port = free_port();
+    let mut server = spawn_gateway_with_supervision(&temp, port, 50);
+    wait_for_health(port);
+    wait_for_job_status(&project, "job-dead-worker", "worker-lost");
+
+    let _ = server.kill();
+}
+
+#[test]
 fn gateway_fails_fast_when_auth_token_env_is_missing() {
     let temp = tempfile::tempdir().expect("tempdir");
     Command::cargo_bin("atelier")
@@ -248,6 +263,10 @@ fn gateway_fails_fast_when_auth_token_env_is_missing() {
 }
 
 fn wait_for_job_success(project: &std::path::Path, job_id: &str) {
+    wait_for_job_status(project, job_id, "succeeded")
+}
+
+fn wait_for_job_status(project: &std::path::Path, job_id: &str, expected: &str) {
     let status_path = project
         .join(".atelier/jobs")
         .join(job_id)
@@ -257,10 +276,13 @@ fn wait_for_job_success(project: &std::path::Path, job_id: &str) {
         let status: Value =
             serde_json::from_str(&std::fs::read_to_string(&status_path).expect("read job status"))
                 .expect("status json");
-        if status["status"] == "succeeded" {
+        if status["status"] == expected {
             break;
         }
-        assert!(Instant::now() < deadline, "job did not complete: {status}");
+        assert!(
+            Instant::now() < deadline,
+            "job did not reach {expected}: {status}"
+        );
         std::thread::sleep(Duration::from_millis(100));
     }
 }
@@ -314,20 +336,7 @@ fn write_waiting_prompt_job(project: &std::path::Path, job_id: &str, prompt_id: 
     let job_dir = project.join(".atelier/jobs").join(job_id);
     let prompts_dir = job_dir.join("prompts");
     std::fs::create_dir_all(&prompts_dir).expect("prompts dir");
-    std::fs::write(
-        job_dir.join("status.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "id": job_id,
-            "status":"waiting-for-prompt",
-            "thread_id":"thread-example",
-            "person":"alice",
-            "dry_run":false,
-            "codex_binary":"codex",
-            "invocation":["app-server"]
-        }))
-        .expect("status json"),
-    )
-    .expect("status");
+    write_job_status_file(project, job_id, "waiting-for-prompt");
     std::fs::write(
         prompts_dir.join(format!("{prompt_id}.json")),
         serde_json::to_string_pretty(&serde_json::json!({
@@ -345,6 +354,40 @@ fn write_waiting_prompt_job(project: &std::path::Path, job_id: &str, prompt_id: 
         .expect("prompt json"),
     )
     .expect("prompt");
+}
+
+fn write_running_job_with_dead_worker(project: &std::path::Path, job_id: &str) {
+    let job_dir = project.join(".atelier/jobs").join(job_id);
+    std::fs::create_dir_all(&job_dir).expect("job dir");
+    write_job_status_file(project, job_id, "running");
+    std::fs::write(
+        job_dir.join("worker.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "pid": 99999999_u64,
+            "idle_timeout_seconds": 300
+        }))
+        .expect("worker json"),
+    )
+    .expect("worker file");
+}
+
+fn write_job_status_file(project: &std::path::Path, job_id: &str, status: &str) {
+    let job_dir = project.join(".atelier/jobs").join(job_id);
+    std::fs::create_dir_all(&job_dir).expect("job dir");
+    std::fs::write(
+        job_dir.join("status.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": job_id,
+            "status": status,
+            "thread_id":"thread-example",
+            "person":"alice",
+            "dry_run":false,
+            "codex_binary":"codex",
+            "invocation":["app-server"]
+        }))
+        .expect("status json"),
+    )
+    .expect("status");
 }
 
 fn write_fake_codex(path: &std::path::Path) {
@@ -390,6 +433,20 @@ fn spawn_gateway_with_auth(
         .env(token_env, token)
         .arg("--auth-token-env")
         .arg(token_env)
+        .spawn()
+        .expect("spawn gateway")
+}
+
+fn spawn_gateway_with_supervision(
+    temp: &tempfile::TempDir,
+    port: u16,
+    interval_millis: u64,
+) -> std::process::Child {
+    let mut command = gateway_command(temp, port);
+    command
+        .arg("--supervise-workers")
+        .arg("--supervision-interval-millis")
+        .arg(interval_millis.to_string())
         .spawn()
         .expect("spawn gateway")
 }
