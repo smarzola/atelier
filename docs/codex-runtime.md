@@ -103,20 +103,27 @@ When Codex needs user input, it sends a server-initiated JSON-RPC request. Ateli
 
 The gateway response becomes the JSON-RPC response to that exact request id. `serverRequest/resolved` and final item/turn notifications close the pending prompt.
 
-Current managed work mode starts a background Atelier worker for each managed job. The worker owns one Codex app-server process, records `protocol.jsonl`, writes prompt records under `prompts/`, waits for response files under `responses/`, forwards those responses back to Codex, captures the final assistant message in `result.md`, and updates `status.json`.
+Current managed work mode starts a background Atelier worker for each managed job. The worker owns one Codex app-server process, records `protocol.jsonl`, writes prompt records under `prompts/`, waits for response files under `responses/`, forwards those responses back to Codex, captures the final assistant message in `result.md`, and updates `status.json`. The launcher also records worker stdout/stderr as `worker-stdout.log` and `worker-stderr.log` so failed worker bootstraps are inspectable.
 
 Useful commands:
 
 ```bash
 atelier work <project> --thread <thread> --as <person> --managed "task"
 atelier jobs list <project>
+atelier jobs show <project> <job-id>
 atelier prompts list <project>
 atelier prompts show <project> <prompt-id>
 atelier prompts respond <project> <prompt-id> accept
+atelier prompts respond <project> <prompt-id> answer --text "example answer"
+atelier prompts respond <project> <prompt-id> accept --json '{"decision":"accept"}'
 atelier jobs recover <project> <job-id>
 ```
 
-Managed workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the managed worker from the saved job context.
+Managed workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the managed worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
+
+Atelier records managed app-server thread metadata in the Atelier thread's `codex-sessions.jsonl` file. That lineage stores the Codex app-server thread id, the job id, and the session path when Codex reports one. This keeps recovery and future resume UX grounded in Codex-native state rather than a parallel transcript store.
+
+The default project concurrency policy is conservative single-writer: a new managed job refuses to start while another managed job in the same project is `running` or `waiting-for-prompt`. Parallel reads and future worktree-based write strategies can be added explicitly, but the default protects shared project folders from overlapping writes.
 
 A terminal passthrough mode can remain useful for local human work, but it is not the managed prompt-relay architecture.
 

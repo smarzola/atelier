@@ -115,7 +115,7 @@ Gateway / CLI / API
 
 ## Status
 
-Early design and bootstrap phase.
+Early implementation phase. The local CLI can initialize projects and threads, inject person-scoped context into Codex work, run managed Codex app-server jobs, relay structured prompts through durable prompt files, inspect jobs, recover idle jobs from saved context, reconcile lost workers, and preserve Codex app-server thread lineage.
 
 ## Runtime requirements
 

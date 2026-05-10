@@ -221,7 +221,7 @@ Atelier job folders should store pointers to Codex session IDs when available:
   result.md
 ```
 
-A project may have multiple Atelier threads in parallel, but write-capable jobs need a concurrency policy. The initial default should be `single-writer` per project: parallel threads are allowed, but writes to the same project are serialized or queued unless a project opts into a safer parallel strategy such as git worktrees.
+A project may have multiple Atelier threads in parallel, but write-capable jobs need a concurrency policy. The initial default is `single-writer` per project for managed work: parallel threads are allowed, but a new managed job refuses to start while another job in the same project is `running` or `waiting-for-prompt`. Jobs whose worker process disappeared are reconciled to `worker-lost` before the writer slot is evaluated. Future project configuration may opt into safer parallel strategies such as git worktrees.
 
 ## Gateway model
 
