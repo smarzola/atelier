@@ -77,6 +77,66 @@ fn prompts_list_show_and_respond_update_pending_prompt() {
 }
 
 #[test]
+fn thread_send_approval_answers_single_pending_prompt() {
+    let (temp, project, thread_id) = initialized_project();
+    let job_dir = project.join(".atelier/jobs/job-example");
+    let prompts_dir = job_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir).expect("create prompts dir");
+    std::fs::write(
+        job_dir.join("status.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id":"job-example",
+            "status":"waiting-for-prompt",
+            "thread_id":thread_id,
+            "person":"alice",
+            "dry_run":false,
+            "codex_binary":"codex",
+            "invocation":["app-server"]
+        }))
+        .expect("status json"),
+    )
+    .expect("write status");
+    std::fs::write(
+        prompts_dir.join("prompt-9.json"),
+        r#"{
+  "id": "prompt-9",
+  "codex_request_id": "9",
+  "method": "item/commandExecution/requestApproval",
+  "codex_thread_id": "codex-thread-example",
+  "codex_turn_id": "turn-example",
+  "codex_item_id": "call-example",
+  "status": "Pending",
+  "summary": "Approve command: cargo test",
+  "available_decisions": ["accept", "decline", "cancel"],
+  "params": {"command": "cargo test"}
+}
+"#,
+    )
+    .expect("write prompt");
+
+    Command::cargo_bin("atelier")
+        .expect("atelier binary")
+        .env("HOME", temp.path())
+        .args([
+            "thread",
+            "send",
+            project.to_str().expect("utf8 path"),
+            "--thread",
+            &thread_id,
+            "--as",
+            "alice",
+            "approve",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Prompt: prompt-9"));
+
+    let response =
+        std::fs::read_to_string(job_dir.join("responses/prompt-9.json")).expect("read response");
+    assert!(response.contains("\"decision\": \"accept\""));
+}
+
+#[test]
 fn prompts_respond_validates_decisions_and_supports_text_payloads() {
     let (temp, project, _thread_id) = initialized_project();
     let job_dir = project.join(".atelier/jobs/job-example");

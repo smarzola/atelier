@@ -140,7 +140,13 @@ atelier jobs show hello-world <job-id>
 atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
-If Codex asks for approval, the job becomes `waiting-for-prompt`:
+If Codex asks for approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval from the thread itself:
+
+```bash
+atelier thread send hello-world --thread "$THREAD" --as alice approve
+```
+
+Or use the explicit prompt commands when you need to inspect details or send structured input:
 
 ```bash
 atelier prompts inbox

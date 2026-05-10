@@ -528,53 +528,75 @@ fn main() -> Result<()> {
                 }
             },
         },
-        Command::Thread { command } => match command {
-            ThreadCommand::New {
-                project_path,
-                title,
-                porcelain,
-            } => {
-                let thread = atelier_core::thread::create_thread(&project_path, &title)?;
-                if porcelain {
-                    println!("{}", thread.id);
-                } else {
-                    println!("Created thread '{}' ({})", thread.title, thread.id);
+        Command::Thread { command } => {
+            match command {
+                ThreadCommand::New {
+                    project_path,
+                    title,
+                    porcelain,
+                } => {
+                    let thread = atelier_core::thread::create_thread(&project_path, &title)?;
+                    if porcelain {
+                        println!("{}", thread.id);
+                    } else {
+                        println!("Created thread '{}' ({})", thread.title, thread.id);
+                    }
                 }
-            }
-            ThreadCommand::Send {
-                project_path,
-                thread,
-                person,
-                daemon_url,
-                idle_timeout_seconds,
-                prompt,
-            } => {
-                let project_arg = project_path.to_string_lossy().to_string();
-                let response = submit_managed_work_to_daemon(
-                    &daemon_url.unwrap_or_else(default_daemon_url),
-                    &project_arg,
-                    &thread,
-                    &person,
-                    &prompt,
+                ThreadCommand::Send {
+                    project_path,
+                    thread,
+                    person,
+                    daemon_url,
                     idle_timeout_seconds,
-                )?;
-                println!("Status: started");
-                println!("Job: {}", response.job_id);
-                println!("Job directory: {}", response.job_dir.display());
-            }
-            ThreadCommand::Follow {
-                project_path,
-                thread,
-                after,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                for event in
-                    atelier_core::thread_events::read_thread_events(&project_path, &thread, after)?
-                {
-                    println!("{}\t{}\t{}", event.sequence, event.kind, event.payload);
+                    prompt,
+                } => {
+                    let resolved_project_path = resolve_project_arg(&project_path)?;
+                    match atelier_core::thread_interaction::decide_thread_interaction(
+                    &resolved_project_path,
+                    &thread,
+                    &prompt,
+                )? {
+                    atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt {
+                        prompt_id,
+                    } => {
+                        let decision = normalize_thread_prompt_decision(&prompt)?;
+                        respond_to_prompt(&resolved_project_path, &prompt_id, &decision, None, None)?;
+                        println!("Status: prompt-answered");
+                        println!("Prompt: {prompt_id}");
+                        println!("Decision: {decision}");
+                    }
+                    _ => {
+                        let project_arg = project_path.to_string_lossy().to_string();
+                        let response = submit_managed_work_to_daemon(
+                            &daemon_url.unwrap_or_else(default_daemon_url),
+                            &project_arg,
+                            &thread,
+                            &person,
+                            &prompt,
+                            idle_timeout_seconds,
+                        )?;
+                        println!("Status: started");
+                        println!("Job: {}", response.job_id);
+                        println!("Job directory: {}", response.job_dir.display());
+                    }
+                }
+                }
+                ThreadCommand::Follow {
+                    project_path,
+                    thread,
+                    after,
+                } => {
+                    let project_path = resolve_project_arg(&project_path)?;
+                    for event in atelier_core::thread_events::read_thread_events(
+                        &project_path,
+                        &thread,
+                        after,
+                    )? {
+                        println!("{}\t{}\t{}", event.sequence, event.kind, event.payload);
+                    }
                 }
             }
-        },
+        }
         Command::Threads { command } => match command {
             ThreadsCommand::List { project_path } => {
                 for thread in atelier_core::thread::list_threads(&project_path)? {
@@ -1972,6 +1994,17 @@ fn gateway_prompts_json() -> Result<serde_json::Value> {
         }
     }
     Ok(serde_json::json!({"prompts": prompts}))
+}
+
+fn normalize_thread_prompt_decision(text: &str) -> Result<String> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "approve" | "accept" | "yes" | "y" => Ok("accept".to_string()),
+        "decline" | "deny" | "no" | "n" => Ok("decline".to_string()),
+        "cancel" => Ok("cancel".to_string()),
+        other => anyhow::bail!(
+            "thread prompt replies support approve/accept/yes, decline/deny/no, or cancel; got {other}"
+        ),
+    }
 }
 
 fn respond_to_prompt(
