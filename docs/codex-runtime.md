@@ -71,17 +71,22 @@ Atelier should record Codex metadata for every real job:
 
 ## Doctor checks
 
-`atelier doctor` should check:
+`atelier doctor` checks the local Codex runtime:
 
-- Codex binary exists;
+- Codex binary exists on `PATH`;
 - `codex --version` succeeds;
-- version is within the supported range;
-- Codex help output contains required subcommands such as `exec` and `resume`;
-- project root exists;
-- project has expected Codex-native files when relevant;
-- optional live Codex smoke test passes only when explicitly requested.
+- `codex exec --help` succeeds;
+- `codex resume --help` succeeds.
 
-Doctor should not silently write Codex config or credentials.
+`atelier doctor --project <path>` also checks the project scaffold:
+
+- project root exists;
+- `.atelier/project.toml` exists;
+- `AGENTS.md` exists;
+- `.atelier/threads/` exists.
+
+Future versions may add explicit version-range checks and an opt-in live Codex smoke test.
+Doctor must not silently write Codex config or credentials.
 
 ## CI testing strategy
 

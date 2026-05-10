@@ -31,6 +31,12 @@ enum Command {
         #[command(subcommand)]
         command: ThreadsCommand,
     },
+    /// Check local Codex runtime and optional project scaffold.
+    Doctor {
+        /// Optional Atelier project folder path.
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
     /// Build or run a Codex work invocation.
     Work {
         /// Project folder path.
@@ -119,6 +125,20 @@ fn main() -> Result<()> {
                 }
             }
         },
+        Command::Doctor { project } => {
+            let report = atelier_core::doctor::run_doctor(project.as_deref());
+            for check in &report.checks {
+                println!(
+                    "{}: {} — {}",
+                    check.name,
+                    check.status.as_str(),
+                    check.detail
+                );
+            }
+            if !report.is_ok() {
+                std::process::exit(1);
+            }
+        }
         Command::Work {
             project_path,
             thread,

@@ -37,7 +37,8 @@ Expected behavior:
 - thread folder created for each ongoing workstream;
 - job folder created for each Atelier-launched run;
 - Codex session IDs recorded as thread lineage when available;
-- no hidden Codex config mutation.
+- no hidden Codex config mutation;
+- `atelier doctor` reports Codex runtime readiness and optional project scaffold health.
 
 ## Phase 2: Identity and person memory
 
