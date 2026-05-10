@@ -116,7 +116,12 @@ ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \
   --listen 127.0.0.1:8787 \
   --auth-token-env ATELIER_GATEWAY_TOKEN
 atelier gateway bind <project-or-alias> --thread <thread> --gateway example-gateway --external-thread external-thread
+atelier gateway bind <project-or-alias> --thread <thread> --gateway telegram --external-thread chat:1000:topic:77
 atelier gateway bind-person --gateway example-gateway --external-user external-user --person alice
+atelier gateway bind-person --gateway telegram --external-user 2000 --person alice
+curl -s http://127.0.0.1:8787/adapters/telegram/update \
+  -H 'Content-Type: application/json' \
+  -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 atelier work <project-or-alias> --thread <thread> --as <person> --managed "task"
 atelier jobs list <project-or-alias>
 atelier jobs show <project-or-alias> <job-id>

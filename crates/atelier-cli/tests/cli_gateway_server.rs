@@ -132,6 +132,66 @@ fn gateway_message_event_resolves_bound_thread_and_person() {
 }
 
 #[test]
+fn telegram_adapter_message_update_starts_managed_work_through_generic_gateway() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "gateway",
+            "bind",
+            project.to_str().expect("utf8 path"),
+            "--thread",
+            &thread_id,
+            "--gateway",
+            "telegram",
+            "--external-thread",
+            "chat:1000:topic:77",
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "gateway",
+            "bind-person",
+            "--gateway",
+            "telegram",
+            "--external-user",
+            "2000",
+            "--person",
+            "alice",
+        ])
+        .assert()
+        .success();
+
+    let fake_bin = temp.path().join("fake-bin");
+    std::fs::create_dir(&fake_bin).expect("fake bin");
+    write_fake_codex(&fake_bin.join("codex"));
+
+    let port = free_port();
+    let mut server = spawn_gateway_with_path(&temp, port, &fake_bin);
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/adapters/telegram/update",
+        r#"{"update_id":1,"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000,"type":"supergroup"},"from":{"id":2000,"is_bot":false,"first_name":"Example"},"text":"Run Telegram task"}}"#,
+    );
+    assert_eq!(response["status"], "started");
+    assert_eq!(response["project"], "example-project");
+    assert_eq!(response["thread"], thread_id);
+    assert_eq!(response["person"], "alice");
+    wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+
+    let _ = server.kill();
+}
+
+#[test]
 fn gateway_rejects_non_loopback_listen_without_explicit_opt_in() {
     let temp = tempfile::tempdir().expect("tempdir");
     Command::cargo_bin("atelier")

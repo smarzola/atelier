@@ -1019,20 +1019,11 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         }
         ("POST", "/events/message") => {
             let event: atelier_core::gateway::GatewayMessageEvent = serde_json::from_str(&body)?;
-            let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
-            let person = resolve_gateway_person(&event)?;
-            ensure_project_writer_available(&project_path)?;
-            let context = build_context(&person, &thread, &event.text)?;
-            let job = atelier_core::job::create_job(
-                &project_path,
-                &thread,
-                &person,
-                &event.text,
-                &context,
-                false,
-            )?;
-            run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
-            serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir,"project":project,"thread":thread,"person":person})
+            handle_gateway_message_event(event)?
+        }
+        ("POST", "/adapters/telegram/update") => {
+            let event = telegram_update_to_gateway_event(&body)?;
+            handle_gateway_message_event(event)?
         }
         _ => {
             write_json_response(stream, 404, serde_json::json!({"error":"not found"}))?;
@@ -1040,6 +1031,77 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         }
     };
     write_json_response(stream, 200, response)
+}
+
+fn handle_gateway_message_event(
+    event: atelier_core::gateway::GatewayMessageEvent,
+) -> Result<serde_json::Value> {
+    let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
+    let person = resolve_gateway_person(&event)?;
+    ensure_project_writer_available(&project_path)?;
+    let context = build_context(&person, &thread, &event.text)?;
+    let job = atelier_core::job::create_job(
+        &project_path,
+        &thread,
+        &person,
+        &event.text,
+        &context,
+        false,
+    )?;
+    run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
+    Ok(
+        serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir,"project":project,"thread":thread,"person":person}),
+    )
+}
+
+fn telegram_update_to_gateway_event(
+    body: &str,
+) -> Result<atelier_core::gateway::GatewayMessageEvent> {
+    let update: serde_json::Value = serde_json::from_str(body).context("parse Telegram update")?;
+    let message = update
+        .get("message")
+        .or_else(|| update.get("edited_message"))
+        .context("Telegram update missing message")?;
+    let text = message
+        .get("text")
+        .or_else(|| message.get("caption"))
+        .and_then(serde_json::Value::as_str)
+        .context("Telegram message update missing text")?;
+    let chat_id = message
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .and_then(json_id_as_string)
+        .context("Telegram message update missing chat id")?;
+    let external_thread =
+        if let Some(topic_id) = message.get("message_thread_id").and_then(json_id_as_string) {
+            format!("chat:{chat_id}:topic:{topic_id}")
+        } else {
+            format!("chat:{chat_id}")
+        };
+    let external_user = message
+        .get("from")
+        .and_then(|from| from.get("id"))
+        .and_then(json_id_as_string)
+        .context("Telegram message update missing sender id")?;
+    Ok(atelier_core::gateway::GatewayMessageEvent {
+        gateway: "telegram".to_string(),
+        external_thread: Some(external_thread),
+        external_user: Some(external_user),
+        project: None,
+        thread: None,
+        person: None,
+        text: text.to_string(),
+    })
+}
+
+fn json_id_as_string(value: &serde_json::Value) -> Option<String> {
+    if let Some(id) = value.as_i64() {
+        Some(id.to_string())
+    } else if let Some(id) = value.as_u64() {
+        Some(id.to_string())
+    } else {
+        value.as_str().map(ToString::to_string)
+    }
 }
 
 fn resolve_gateway_person(event: &atelier_core::gateway::GatewayMessageEvent) -> Result<String> {
