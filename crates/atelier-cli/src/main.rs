@@ -279,6 +279,13 @@ enum JobsCommand {
         /// Project folder path.
         project_path: PathBuf,
     },
+    /// Show one job with durable artifact paths and recent logs.
+    Show {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Job id to show.
+        job_id: String,
+    },
     /// Recover an idle managed job from saved context.
     Recover {
         /// Project folder path.
@@ -522,6 +529,12 @@ fn main() -> Result<()> {
                     println!("{}\t{}\t{}", status.id, status.status, status.thread_id);
                 }
             }
+            JobsCommand::Show {
+                project_path,
+                job_id,
+            } => {
+                show_job(&project_path, &job_id)?;
+            }
             JobsCommand::Recover {
                 project_path,
                 job_id,
@@ -703,6 +716,35 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn show_job(project_path: &Path, job_id: &str) -> Result<()> {
+    let job_dir = project_path.join(".atelier/jobs").join(job_id);
+    let status_path = job_dir.join("status.json");
+    let mut status: atelier_core::job::JobStatus =
+        serde_json::from_str(&std::fs::read_to_string(&status_path).context("read job status")?)
+            .context("parse job status")?;
+    reconcile_worker_status(&job_dir, &mut status)?;
+
+    println!("Job: {}", status.id);
+    println!("Status: {}", status.status);
+    println!("Thread: {}", status.thread_id);
+    println!("Person: {}", status.person);
+    println!("Job directory: {}", job_dir.display());
+    print_log_preview(&job_dir.join("worker-stdout.log"), "worker-stdout.log")?;
+    print_log_preview(&job_dir.join("worker-stderr.log"), "worker-stderr.log")?;
+    print_log_preview(&job_dir.join("stderr.log"), "stderr.log")?;
+    Ok(())
+}
+
+fn print_log_preview(path: &Path, label: &str) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let content = std::fs::read_to_string(path).with_context(|| format!("read {label}"))?;
+    let first_line = content.lines().next().unwrap_or("");
+    println!("{label}: {first_line}");
     Ok(())
 }
 
@@ -894,8 +936,14 @@ fn run_managed_app_server_job(
         .arg(idle_timeout_seconds.to_string())
         .arg(context)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(
+            std::fs::File::create(job.dir.join("worker-stdout.log"))
+                .context("create worker stdout log")?,
+        ))
+        .stderr(Stdio::from(
+            std::fs::File::create(job.dir.join("worker-stderr.log"))
+                .context("create worker stderr log")?,
+        ))
         .spawn()
         .context("spawn managed worker")?;
 

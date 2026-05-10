@@ -109,6 +109,7 @@ Expected behavior:
 - [x] Record managed Codex app-server thread/session metadata in Atelier thread lineage.
 - [x] Enforce a conservative single-writer managed-work policy per project.
 - [x] Validate prompt response decisions and support text/JSON payload responses.
+- [x] Add job show inspection and durable managed-worker stdout/stderr logs.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [ ] Audit logs.
