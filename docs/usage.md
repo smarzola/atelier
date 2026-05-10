@@ -132,6 +132,8 @@ atelier thread send hello-world \
 
 `atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand for starting managed work, but the thread-native command is preferred for ongoing workstreams. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer.
 
+The shared thread event stream is intentionally bounded. Atelier records lifecycle events, prompt notifications, queued-message notifications, coalesced `agent_message_snapshot` progress, and `final_result`; it does not send token-by-token gateway spam.
+
 Inspect the job and follow the shared thread event stream:
 
 ```bash
@@ -320,7 +322,7 @@ curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 ```
 
-Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id. When that job emits a `final_result` thread event, Atelier publishes the final result back to the same Telegram chat/topic using the shared event stream and delivery cursor machinery.
+Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id. When the job completes, Atelier reads the shared thread event stream, coalesces progress to a bounded set of useful messages, publishes prompt/progress/final output back to the same Telegram chat/topic, and advances delivery cursors to avoid duplicate sends.
 
 Send a Telegram message through the Bot API:
 

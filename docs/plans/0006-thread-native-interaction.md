@@ -592,7 +592,9 @@ Do not send token-by-token messages to Telegram. Use bounded updates:
 
 - prompt required immediately;
 - final result always;
-- optional progress snapshots no more than once every N seconds or when a meaningful phase changes.
+- queued-message notices when a running job finishes;
+- coalesced progress snapshots rather than every intermediate `agent_message_snapshot`;
+- adjacent duplicate text collapsed so a final result does not repeat an identical snapshot.
 
 **Step 2: Add tests for throttling**
 

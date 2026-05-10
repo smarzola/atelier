@@ -2441,8 +2441,9 @@ fn run_managed_worker(
             append_agent_message_event(job_dir, thread, &message)?;
         }
         if message_method(trimmed).as_deref() == Some("turn/completed") {
+            append_final_result_event(job_dir, thread)?;
             write_job_status(job_dir, "succeeded", thread, person)?;
-            publish_telegram_final_result(job_dir, thread)?;
+            publish_telegram_bounded_progress(job_dir, thread)?;
             if let Some(project_path) = project_path_from_job_dir(job_dir) {
                 atelier_core::thread_queue::mark_queued_messages_ready(
                     &project_path,
@@ -2515,7 +2516,7 @@ fn message_method(line: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn publish_telegram_final_result(job_dir: &Path, thread: &str) -> Result<()> {
+fn publish_telegram_bounded_progress(job_dir: &Path, thread: &str) -> Result<()> {
     let origin_path = job_dir.join("gateway-origin.json");
     if !origin_path.exists() {
         return Ok(());
@@ -2535,10 +2536,15 @@ fn publish_telegram_final_result(job_dir: &Path, thread: &str) -> Result<()> {
         thread,
         &subscriber_id,
     )?;
+    let progress_events = atelier_core::thread_progress::select_bounded_progress_events(&events);
+    let delivered_sequences = progress_events
+        .iter()
+        .map(|event| event.sequence)
+        .collect::<std::collections::HashSet<_>>();
     let mut last_sequence = None;
-    for event in events {
+    for event in &events {
         last_sequence = Some(event.sequence);
-        if event.kind != "final_result" {
+        if !delivered_sequences.contains(&event.sequence) {
             continue;
         }
         let Some(text) = event
@@ -2604,12 +2610,25 @@ fn append_agent_message_event(job_dir: &Path, thread: &str, message: &str) -> Re
         "agent_message_snapshot",
         serde_json::json!({"text": message}),
     )?;
+    Ok(())
+}
+
+fn append_final_result_event(job_dir: &Path, thread: &str) -> Result<()> {
+    let Some(project_path) = project_path_from_job_dir(job_dir) else {
+        return Ok(());
+    };
+    let result_path = job_dir.join("result.md");
+    let text = match std::fs::read_to_string(&result_path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).with_context(|| format!("read {}", result_path.display())),
+    };
     atelier_core::thread_events::append_thread_event(
         &project_path,
         thread,
-        Some(&job_id),
+        Some(&job_id_from_dir(job_dir)),
         "final_result",
-        serde_json::json!({"text": message}),
+        serde_json::json!({"text": text}),
     )?;
     Ok(())
 }

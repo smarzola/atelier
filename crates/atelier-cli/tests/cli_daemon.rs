@@ -198,6 +198,59 @@ fn daemon_run_sends_telegram_messages_through_bot_api() {
 
 #[test]
 fn daemon_run_acknowledges_telegram_update_job_start() {
+    telegram_update_job_start_with_fake_codex("daemon done", 2, |bodies, job_id| {
+        assert!(
+            bodies
+                .iter()
+                .any(|body| body["text"].as_str().expect("ack text").contains(job_id)),
+            "one Telegram message should include job id: {bodies:?}"
+        );
+        let final_body = bodies
+            .iter()
+            .find(|body| body["text"] == "daemon done")
+            .expect("final result message");
+        assert_eq!(final_body["chat_id"], "1000");
+        assert_eq!(final_body["message_thread_id"], "77");
+    });
+}
+
+#[test]
+fn daemon_run_coalesces_telegram_progress_before_final_result() {
+    telegram_update_job_start_with_fake_codex(
+        "progress: drafting|daemon done|daemon done",
+        2,
+        |bodies, job_id| {
+            assert!(
+                bodies
+                    .iter()
+                    .any(|body| body["text"].as_str().expect("ack text").contains(job_id)),
+                "one Telegram message should include job id: {bodies:?}"
+            );
+            assert!(
+                bodies
+                    .iter()
+                    .all(|body| body["text"] != "progress: drafting"),
+                "stale progress snapshot should be coalesced away: {bodies:?}"
+            );
+            assert!(
+                bodies
+                    .iter()
+                    .all(|body| body["text"] != "progress: final draft"),
+                "progress snapshot that matches the final result should be coalesced away: {bodies:?}"
+            );
+            assert!(
+                bodies.iter().any(|body| body["text"] == "daemon done"),
+                "final result should still be delivered: {bodies:?}"
+            );
+        },
+    );
+}
+
+fn telegram_update_job_start_with_fake_codex(
+    fake_messages: &str,
+    expected_telegram_requests: usize,
+    assert_bodies: impl FnOnce(&[Value], &str),
+) {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_and_register(&temp, &project);
@@ -237,8 +290,8 @@ fn daemon_run_acknowledges_telegram_update_job_start() {
         .success();
     let fake_bin = temp.path().join("fake-bin");
     std::fs::create_dir(&fake_bin).expect("fake bin");
-    write_fake_codex(&fake_bin.join("codex"));
-    let telegram_api = FakeTelegramApi::start(2);
+    write_fake_codex_with_messages(&fake_bin.join("codex"), fake_messages);
+    let telegram_api = FakeTelegramApi::start(expected_telegram_requests);
     let port = free_port();
     let mut daemon = daemon_command(&temp, port)
         .env("PATH", prepend_to_path(&fake_bin))
@@ -257,25 +310,16 @@ fn daemon_run_acknowledges_telegram_update_job_start() {
     let job_id = response["job_id"].as_str().expect("job id");
     wait_for_job_success(&project, job_id);
 
-    let first_request = telegram_api.next_request();
-    assert_eq!(first_request.path, "/botexample-token/sendMessage");
-    let first_body: Value = serde_json::from_str(&first_request.body).expect("first body");
-    let second_request = telegram_api.next_request();
-    assert_eq!(second_request.path, "/botexample-token/sendMessage");
-    let second_body: Value = serde_json::from_str(&second_request.body).expect("second body");
-    let bodies = [first_body, second_body];
-    assert!(
-        bodies
-            .iter()
-            .any(|body| body["text"].as_str().expect("ack text").contains(job_id)),
-        "one Telegram message should include job id: {bodies:?}"
-    );
-    let final_body = bodies
-        .iter()
-        .find(|body| body["text"] == "daemon done")
-        .expect("final result message");
-    assert_eq!(final_body["chat_id"], "1000");
-    assert_eq!(final_body["message_thread_id"], "77");
+    let mut bodies = Vec::new();
+    for index in 0..expected_telegram_requests {
+        let request = telegram_api.next_request();
+        assert_eq!(request.path, "/botexample-token/sendMessage");
+        bodies.push(
+            serde_json::from_str(&request.body)
+                .unwrap_or_else(|error| panic!("telegram body {index} should be JSON: {error}")),
+        );
+    }
+    assert_bodies(&bodies, job_id);
 
     let _ = daemon.kill();
 }
@@ -464,26 +508,31 @@ fn request_status_and_json(
 }
 
 fn write_fake_codex(path: &std::path::Path) {
-    std::fs::write(
-        path,
+    write_fake_codex_with_messages(path, "daemon done");
+}
+
+fn write_fake_codex_with_messages(path: &std::path::Path, messages: &str) {
+    let script = format!(
         r#"#!/usr/bin/env python3
 import json, sys
+messages = {messages:?}.split('|')
 for line in sys.stdin:
     message=json.loads(line)
     if message.get("method") == "initialize":
-        print(json.dumps({"id":message["id"],"result":{"userAgent":"fake","codexHome":"/tmp/fake","platformFamily":"unix","platformOs":"linux"}}), flush=True)
+        print(json.dumps({{"id":message["id"],"result":{{"userAgent":"fake","codexHome":"/tmp/fake","platformFamily":"unix","platformOs":"linux"}}}}), flush=True)
     elif message.get("method") == "initialized":
         continue
     elif message.get("method") == "thread/start":
-        print(json.dumps({"id":message["id"],"result":{"thread":{"id":"codex-thread","path":"/tmp/session.jsonl"},"model":"default","modelProvider":"fake","cwd":message["params"]["cwd"],"instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{"type":"workspaceWrite"}}}), flush=True)
+        print(json.dumps({{"id":message["id"],"result":{{"thread":{{"id":"codex-thread","path":"/tmp/session.jsonl"}},"model":"default","modelProvider":"fake","cwd":message["params"]["cwd"],"instructionSources":[],"approvalPolicy":"on-request","approvalsReviewer":"user","sandbox":{{"type":"workspaceWrite"}}}}}}), flush=True)
     elif message.get("method") == "turn/start":
-        print(json.dumps({"id":message["id"],"result":{"turn":{"id":"turn","status":"inProgress"}}}), flush=True)
-        print(json.dumps({"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg","text":"daemon done"},"threadId":"codex-thread","turnId":"turn"}}), flush=True)
-        print(json.dumps({"method":"turn/completed","params":{"threadId":"codex-thread","turn":{"id":"turn","status":"completed"}}}), flush=True)
+        print(json.dumps({{"id":message["id"],"result":{{"turn":{{"id":"turn","status":"inProgress"}}}}}}), flush=True)
+        for index, text in enumerate(messages):
+            print(json.dumps({{"method":"item/completed","params":{{"item":{{"type":"agentMessage","id":f"msg-{{index}}","text":text}},"threadId":"codex-thread","turnId":"turn"}}}}), flush=True)
+        print(json.dumps({{"method":"turn/completed","params":{{"threadId":"codex-thread","turn":{{"id":"turn","status":"completed"}}}}}}), flush=True)
         break
-"#,
-    )
-    .expect("fake codex");
+"#
+    );
+    std::fs::write(path, script).expect("fake codex");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
