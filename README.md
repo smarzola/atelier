@@ -32,7 +32,7 @@ npm i -g @openai/codex
 codex login
 ```
 
-For development from source:
+Download prebuilt alpha binaries from GitHub Releases when available, or build from source:
 
 ```bash
 git clone https://github.com/smarzola/atelier.git
@@ -40,6 +40,8 @@ cd atelier
 cargo build --release
 export PATH="$PWD/target/release:$PATH"
 ```
+
+Release tags build Linux, macOS, and Windows binary archives through GitHub Actions.
 
 ### 2. Create a home workspace and a project
 

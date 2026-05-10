@@ -10,6 +10,19 @@ This guide documents the current alpha CLI and local gateway workflows.
 - **Thread:** an Atelier workstream inside a project. Gateway threads and Codex session lineage bind to Atelier threads.
 - **Job:** one Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project.
 
+## Install Atelier
+
+Download a prebuilt alpha archive from GitHub Releases when available, or build from source:
+
+```bash
+git clone https://github.com/smarzola/atelier.git
+cd atelier
+cargo build --release
+export PATH="$PWD/target/release:$PATH"
+```
+
+Release tags build archives for Linux, macOS, and Windows.
+
 ## Initialize Atelier
 
 ```bash
