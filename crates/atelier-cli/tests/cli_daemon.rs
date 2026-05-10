@@ -238,7 +238,7 @@ fn daemon_run_acknowledges_telegram_update_job_start() {
     let fake_bin = temp.path().join("fake-bin");
     std::fs::create_dir(&fake_bin).expect("fake bin");
     write_fake_codex(&fake_bin.join("codex"));
-    let telegram_api = FakeTelegramApi::start(1);
+    let telegram_api = FakeTelegramApi::start(2);
     let port = free_port();
     let mut daemon = daemon_command(&temp, port)
         .env("PATH", prepend_to_path(&fake_bin))
@@ -257,15 +257,25 @@ fn daemon_run_acknowledges_telegram_update_job_start() {
     let job_id = response["job_id"].as_str().expect("job id");
     wait_for_job_success(&project, job_id);
 
-    let request = telegram_api.next_request();
-    assert_eq!(request.path, "/botexample-token/sendMessage");
-    let body: Value = serde_json::from_str(&request.body).expect("ack body");
-    assert_eq!(body["chat_id"], "1000");
-    assert_eq!(body["message_thread_id"], "77");
+    let first_request = telegram_api.next_request();
+    assert_eq!(first_request.path, "/botexample-token/sendMessage");
+    let first_body: Value = serde_json::from_str(&first_request.body).expect("first body");
+    let second_request = telegram_api.next_request();
+    assert_eq!(second_request.path, "/botexample-token/sendMessage");
+    let second_body: Value = serde_json::from_str(&second_request.body).expect("second body");
+    let bodies = [first_body, second_body];
     assert!(
-        body["text"].as_str().expect("ack text").contains(job_id),
-        "ack should include job id: {body}"
+        bodies
+            .iter()
+            .any(|body| body["text"].as_str().expect("ack text").contains(job_id)),
+        "one Telegram message should include job id: {bodies:?}"
     );
+    let final_body = bodies
+        .iter()
+        .find(|body| body["text"] == "daemon done")
+        .expect("final result message");
+    assert_eq!(final_body["chat_id"], "1000");
+    assert_eq!(final_body["message_thread_id"], "77");
 
     let _ = daemon.kill();
 }

@@ -320,7 +320,7 @@ curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 ```
 
-Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id.
+Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id. When that job emits a `final_result` thread event, Atelier publishes the final result back to the same Telegram chat/topic using the shared event stream and delivery cursor machinery.
 
 Send a Telegram message through the Bot API:
 

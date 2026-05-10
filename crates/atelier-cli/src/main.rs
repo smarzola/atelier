@@ -1633,6 +1633,9 @@ fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serd
         &context,
         false,
     )?;
+    if request.gateway.as_deref() == Some("telegram") {
+        persist_telegram_job_origin(&job.dir, request.external_thread.as_deref())?;
+    }
     run_managed_app_server_job(
         &job,
         &request.project_path,
@@ -1661,6 +1664,35 @@ fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serd
         "thread":request.thread,
         "person":request.person
     }))
+}
+
+fn persist_telegram_job_origin(job_dir: &Path, external_thread: Option<&str>) -> Result<()> {
+    let Some(external_thread) = external_thread else {
+        return Ok(());
+    };
+    let Some((chat_id, message_thread_id)) = parse_telegram_external_thread(external_thread) else {
+        return Ok(());
+    };
+    std::fs::write(
+        job_dir.join("gateway-origin.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "gateway":"telegram",
+            "chat_id": chat_id,
+            "message_thread_id": message_thread_id,
+        }))?,
+    )?;
+    Ok(())
+}
+
+fn parse_telegram_external_thread(external_thread: &str) -> Option<(String, Option<String>)> {
+    let parts = external_thread.split(':').collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["chat", chat_id] => Some(((*chat_id).to_string(), None)),
+        ["chat", chat_id, "topic", topic_id] => {
+            Some(((*chat_id).to_string(), Some((*topic_id).to_string())))
+        }
+        _ => None,
+    }
 }
 
 fn append_gateway_audit_event(mut event: serde_json::Value) -> Result<()> {
@@ -2410,6 +2442,7 @@ fn run_managed_worker(
         }
         if message_method(trimmed).as_deref() == Some("turn/completed") {
             write_job_status(job_dir, "succeeded", thread, person)?;
+            publish_telegram_final_result(job_dir, thread)?;
             if let Some(project_path) = project_path_from_job_dir(job_dir) {
                 atelier_core::thread_queue::mark_queued_messages_ready(
                     &project_path,
@@ -2480,6 +2513,61 @@ fn message_method(line: &str) -> Option<String> {
         .get("method")?
         .as_str()
         .map(ToString::to_string)
+}
+
+fn publish_telegram_final_result(job_dir: &Path, thread: &str) -> Result<()> {
+    let origin_path = job_dir.join("gateway-origin.json");
+    if !origin_path.exists() {
+        return Ok(());
+    }
+    let origin: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&origin_path).context("read gateway origin")?,
+    )?;
+    if origin.get("gateway").and_then(serde_json::Value::as_str) != Some("telegram") {
+        return Ok(());
+    }
+    let Some(project_path) = project_path_from_job_dir(job_dir) else {
+        return Ok(());
+    };
+    let subscriber_id = format!("telegram-{}", job_id_from_dir(job_dir));
+    let events = atelier_core::thread_delivery::read_undelivered_events(
+        &project_path,
+        thread,
+        &subscriber_id,
+    )?;
+    let mut last_sequence = None;
+    for event in events {
+        last_sequence = Some(event.sequence);
+        if event.kind != "final_result" {
+            continue;
+        }
+        let Some(text) = event
+            .payload
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        telegram_send_message_body(
+            &load_telegram_config(),
+            origin
+                .get("chat_id")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+            origin.get("message_thread_id").cloned(),
+            None,
+            text.to_string(),
+        )?;
+    }
+    if let Some(sequence) = last_sequence {
+        atelier_core::thread_delivery::advance_delivery_cursor(
+            &project_path,
+            thread,
+            &subscriber_id,
+            sequence,
+        )?;
+    }
+    Ok(())
 }
 
 fn append_prompt_required_event(

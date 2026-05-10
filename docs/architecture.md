@@ -290,7 +290,7 @@ The daemon-hosted HTTP gateway exposes JSON endpoints:
 
 The daemon listens on localhost by default and refuses non-loopback addresses unless explicitly allowed. `atelier gateway serve` remains available as a compatibility/developer command for the same HTTP surface, but product usage should run `atelier daemon run`.
 
-The Telegram adapter uses `ATELIER_TELEGRAM_BOT_TOKEN` for outbound Bot API calls, defaults to `https://api.telegram.org`, and accepts `ATELIER_TELEGRAM_API_BASE` for local test servers or proxies. Webhook setup posts `url` from `ATELIER_TELEGRAM_WEBHOOK_URL` and includes `secret_token` when `ATELIER_TELEGRAM_WEBHOOK_SECRET` is set. Incoming Telegram updates validate `X-Telegram-Bot-Api-Secret-Token` against that secret before they are translated into the generic gateway message event. When an update starts a job, the adapter sends a Bot API acknowledgement to the originating chat/topic with the job id.
+The Telegram adapter uses `ATELIER_TELEGRAM_BOT_TOKEN` for outbound Bot API calls, defaults to `https://api.telegram.org`, and accepts `ATELIER_TELEGRAM_API_BASE` for local test servers or proxies. Webhook setup posts `url` from `ATELIER_TELEGRAM_WEBHOOK_URL` and includes `secret_token` when `ATELIER_TELEGRAM_WEBHOOK_SECRET` is set. Incoming Telegram updates validate `X-Telegram-Bot-Api-Secret-Token` against that secret before they are translated into the generic gateway message event. When an update starts a job, the adapter sends a Bot API acknowledgement to the originating chat/topic with the job id. Final job output is delivered from the shared `final_result` thread event, with delivery cursors preventing duplicate sends after restart.
 
 A message resolves in this order:
 
