@@ -273,6 +273,16 @@ enum JobsCommand {
         /// Project folder path.
         project_path: PathBuf,
     },
+    /// Recover an idle managed job from saved context.
+    Recover {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Job id to recover.
+        job_id: String,
+        /// Terminate the recovered worker after this many idle seconds.
+        #[arg(long, default_value_t = 300)]
+        idle_timeout_seconds: u64,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -502,6 +512,29 @@ fn main() -> Result<()> {
                 for status in list_jobs(&project_path)? {
                     println!("{}\t{}\t{}", status.id, status.status, status.thread_id);
                 }
+            }
+            JobsCommand::Recover {
+                project_path,
+                job_id,
+                idle_timeout_seconds,
+            } => {
+                let job_dir = project_path.join(".atelier/jobs").join(&job_id);
+                let status: atelier_core::job::JobStatus = serde_json::from_str(
+                    &std::fs::read_to_string(job_dir.join("status.json"))
+                        .context("read job status")?,
+                )
+                .context("parse job status")?;
+                let context = std::fs::read_to_string(job_dir.join("context.md"))
+                    .context("read job context")?;
+                run_managed_worker(
+                    &job_dir,
+                    &project_path,
+                    &status.thread_id,
+                    &status.person,
+                    &context,
+                    idle_timeout_seconds,
+                )?;
+                println!("Recovered job: {job_id}");
             }
         },
         Command::Skill { command } => match command {
