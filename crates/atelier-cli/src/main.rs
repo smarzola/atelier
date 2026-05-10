@@ -590,6 +590,9 @@ fn main() -> Result<()> {
                 search,
             };
             let context = build_context(&person, &thread, &prompt)?;
+            if managed {
+                ensure_project_writer_available(&project_path)?;
+            }
             let job = atelier_core::job::create_job(
                 &project_path,
                 &thread,
@@ -691,6 +694,19 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn ensure_project_writer_available(project_path: &Path) -> Result<()> {
+    for status in list_jobs(project_path)? {
+        if status.status == "running" || status.status == "waiting-for-prompt" {
+            anyhow::bail!(
+                "active managed job already owns project writer slot: {} ({})",
+                status.id,
+                status.status
+            );
+        }
+    }
     Ok(())
 }
 
