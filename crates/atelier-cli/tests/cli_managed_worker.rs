@@ -95,9 +95,11 @@ for line in sys.stdin:
     let status_path = std::path::Path::new(job_dir).join("status.json");
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let status: Value =
-            serde_json::from_str(&std::fs::read_to_string(&status_path).expect("read status"))
-                .expect("status json");
+        let status_text = std::fs::read_to_string(&status_path).expect("read status");
+        let Ok(status) = serde_json::from_str::<Value>(&status_text) else {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        };
         if status["status"] == "succeeded" {
             break;
         }
