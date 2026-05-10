@@ -1,6 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -88,6 +89,9 @@ enum Command {
         /// Use Codex app-server managed mode for structured prompt relay.
         #[arg(long)]
         managed: bool,
+        /// Terminate an idle managed worker after this many seconds.
+        #[arg(long, default_value_t = 300)]
+        idle_timeout_seconds: u64,
         /// Invocation-time Codex approval policy override.
         #[arg(long)]
         approval_policy: Option<String>,
@@ -135,6 +139,21 @@ enum Command {
         /// Atelier thread id.
         #[arg(long)]
         thread: String,
+    },
+    /// Internal managed app-server worker process.
+    #[command(hide = true, name = "__managed-worker")]
+    ManagedWorker {
+        #[arg(long)]
+        job_dir: PathBuf,
+        #[arg(long)]
+        project_path: PathBuf,
+        #[arg(long)]
+        thread: String,
+        #[arg(long = "as")]
+        person: String,
+        #[arg(long, default_value_t = 300)]
+        idle_timeout_seconds: u64,
+        context: String,
     },
 }
 
@@ -503,6 +522,7 @@ fn main() -> Result<()> {
             dry_run,
             interactive,
             managed,
+            idle_timeout_seconds,
             approval_policy,
             sandbox,
             model,
@@ -536,7 +556,14 @@ fn main() -> Result<()> {
                 println!("Would run: {}", invocation.display_command());
                 println!("\n{}", invocation.prompt);
             } else if managed {
-                run_managed_app_server_job(&job, &project_path, &thread, &person, &context)?;
+                run_managed_app_server_job(
+                    &job,
+                    &project_path,
+                    &thread,
+                    &person,
+                    &context,
+                    idle_timeout_seconds,
+                )?;
             } else if interactive {
                 let output = invocation.run_interactive()?;
                 finish_job(&job, &thread, &person, output)?;
@@ -590,6 +617,23 @@ fn main() -> Result<()> {
                 "{}",
                 atelier_core::thread::codex_session_lineage(&project_path, &thread)?
             );
+        }
+        Command::ManagedWorker {
+            job_dir,
+            project_path,
+            thread,
+            person,
+            idle_timeout_seconds,
+            context,
+        } => {
+            run_managed_worker(
+                &job_dir,
+                &project_path,
+                &thread,
+                &person,
+                &context,
+                idle_timeout_seconds,
+            )?;
         }
     }
 
@@ -668,6 +712,85 @@ fn run_managed_app_server_job(
     thread: &str,
     person: &str,
     context: &str,
+    idle_timeout_seconds: u64,
+) -> Result<()> {
+    let exe = std::env::current_exe().context("current atelier executable")?;
+    let child = ProcessCommand::new(exe)
+        .arg("__managed-worker")
+        .arg("--job-dir")
+        .arg(&job.dir)
+        .arg("--project-path")
+        .arg(project_path)
+        .arg("--thread")
+        .arg(thread)
+        .arg("--as")
+        .arg(person)
+        .arg("--idle-timeout-seconds")
+        .arg(idle_timeout_seconds.to_string())
+        .arg(context)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("spawn managed worker")?;
+
+    std::fs::write(
+        job.dir.join("worker.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "pid": child.id(),
+            "idle_timeout_seconds": idle_timeout_seconds
+        }))?,
+    )?;
+
+    let prompt_deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(prompt) = first_prompt(&job.dir)? {
+            println!("Job: {}", job.id);
+            println!("Job directory: {}", job.dir.display());
+            println!("Pending prompt: {}", prompt.id);
+            println!("{}", prompt.summary);
+            return Ok(());
+        }
+        let status_path = job.dir.join("status.json");
+        let status_text = std::fs::read_to_string(&status_path).unwrap_or_default();
+        if status_text.contains("\"status\": \"succeeded\"") {
+            println!("Job: {}", job.id);
+            println!("Job directory: {}", job.dir.display());
+            println!("Status: succeeded");
+            return Ok(());
+        }
+        if Instant::now() > prompt_deadline {
+            println!("Job: {}", job.id);
+            println!("Job directory: {}", job.dir.display());
+            println!("Status: running");
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn first_prompt(job_dir: &Path) -> Result<Option<atelier_core::codex_app_server::PendingPrompt>> {
+    let prompts_dir = job_dir.join("prompts");
+    if !prompts_dir.exists() {
+        return Ok(None);
+    }
+    let mut paths: Vec<_> = std::fs::read_dir(prompts_dir)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::io::Result<_>>()?;
+    paths.sort();
+    let Some(path) = paths.into_iter().next() else {
+        return Ok(None);
+    };
+    Ok(Some(serde_json::from_str(&std::fs::read_to_string(path)?)?))
+}
+
+fn run_managed_worker(
+    job_dir: &Path,
+    project_path: &Path,
+    thread: &str,
+    person: &str,
+    context: &str,
+    idle_timeout_seconds: u64,
 ) -> Result<()> {
     let mut child = ProcessCommand::new("codex")
         .arg("app-server")
@@ -680,95 +803,147 @@ fn run_managed_app_server_job(
     let mut stdin = child.stdin.take().context("codex app-server stdin")?;
     let stdout = child.stdout.take().context("codex app-server stdout")?;
     let mut reader = BufReader::new(stdout);
-    let protocol_path = job.dir.join("protocol.jsonl");
-    let mut protocol = std::fs::File::create(&protocol_path).context("create protocol log")?;
+    let mut protocol = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(job_dir.join("protocol.jsonl"))
+        .context("open protocol log")?;
 
     send_json(
         &mut stdin,
-        serde_json::json!({
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "clientInfo": {"name": "atelier", "title": "Atelier", "version": env!("CARGO_PKG_VERSION")},
-                "capabilities": {"experimentalApi": true, "requestAttestation": false}
-            }
-        }),
+        serde_json::json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"atelier","title":"Atelier","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true,"requestAttestation":false}}}),
     )?;
     send_json(
         &mut stdin,
-        serde_json::json!({"method": "initialized", "params": {}}),
+        serde_json::json!({"method":"initialized","params":{}}),
     )?;
     send_json(
         &mut stdin,
-        serde_json::json!({
-            "id": 2,
-            "method": "thread/start",
-            "params": {"cwd": project_path, "approvalPolicy": "on-request", "sandbox": "workspace-write"}
-        }),
+        serde_json::json!({"id":2,"method":"thread/start","params":{"cwd":project_path,"approvalPolicy":"on-request","sandbox":"workspace-write"}}),
     )?;
-
     let codex_thread_id = read_until_response_thread(&mut reader, &mut protocol, 2)?;
     send_json(
         &mut stdin,
-        serde_json::json!({
-            "id": 3,
-            "method": "turn/start",
-            "params": {
-                "threadId": codex_thread_id,
-                "input": [{"type": "text", "text": context, "textElements": []}]
-            }
-        }),
+        serde_json::json!({"id":3,"method":"turn/start","params":{"threadId":codex_thread_id,"input":[{"type":"text","text":context,"textElements":[]}]}}),
     )?;
 
-    let mut waiting_for_prompt = false;
+    write_job_status(job_dir, "running", thread, person)?;
+    let idle_deadline = Instant::now() + Duration::from_secs(idle_timeout_seconds);
     let mut line = String::new();
     loop {
+        if Instant::now() > idle_deadline {
+            write_job_status(job_dir, "idle-timeout", thread, person)?;
+            let _ = child.kill();
+            return Ok(());
+        }
         line.clear();
         let bytes = reader
             .read_line(&mut line)
             .context("read codex app-server")?;
         if bytes == 0 {
-            break;
+            write_job_status(job_dir, "failed", thread, person)?;
+            return Ok(());
         }
         protocol
             .write_all(line.as_bytes())
             .context("write protocol")?;
-        if let Some(prompt) = atelier_core::codex_app_server::parse_pending_prompt(line.trim_end())
-        {
-            let prompts_dir = job.dir.join("prompts");
-            std::fs::create_dir_all(&prompts_dir).context("create prompts dir")?;
-            std::fs::write(
-                prompts_dir.join(format!("{}.json", prompt.id)),
-                serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
-            )
-            .context("write prompt")?;
-            println!("Job: {}", job.id);
-            println!("Job directory: {}", job.dir.display());
-            println!("Pending prompt: {}", prompt.id);
-            println!("{}", prompt.summary);
-            waiting_for_prompt = true;
-            break;
+        let trimmed = line.trim_end();
+        if let Some(prompt) = atelier_core::codex_app_server::parse_pending_prompt(trimmed) {
+            persist_prompt(job_dir, &prompt)?;
+            write_job_status(job_dir, "waiting-for-prompt", thread, person)?;
+            wait_for_prompt_response(job_dir, &prompt, &mut stdin, idle_timeout_seconds)?;
+            write_job_status(job_dir, "running", thread, person)?;
+            continue;
+        }
+        if let Some(message) = agent_message_text(trimmed) {
+            std::fs::write(job_dir.join("result.md"), message)?;
+        }
+        if message_method(trimmed).as_deref() == Some("turn/completed") {
+            write_job_status(job_dir, "succeeded", thread, person)?;
+            return Ok(());
         }
     }
+}
 
-    let status = atelier_core::job::JobStatus {
-        id: job.id.clone(),
-        status: if waiting_for_prompt {
-            "waiting-for-prompt"
-        } else {
-            "succeeded"
+fn persist_prompt(
+    job_dir: &Path,
+    prompt: &atelier_core::codex_app_server::PendingPrompt,
+) -> Result<()> {
+    let prompts_dir = job_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir).context("create prompts dir")?;
+    std::fs::write(
+        prompts_dir.join(format!("{}.json", prompt.id)),
+        serde_json::to_string_pretty(prompt).context("serialize prompt")?,
+    )
+    .context("write prompt")
+}
+
+fn wait_for_prompt_response(
+    job_dir: &Path,
+    prompt: &atelier_core::codex_app_server::PendingPrompt,
+    stdin: &mut std::process::ChildStdin,
+    idle_timeout_seconds: u64,
+) -> Result<()> {
+    let response_path = job_dir
+        .join("responses")
+        .join(format!("{}.json", prompt.id));
+    let deadline = Instant::now() + Duration::from_secs(idle_timeout_seconds);
+    loop {
+        if response_path.exists() {
+            let response: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(&response_path).context("read prompt response")?,
+            )
+            .context("parse prompt response")?;
+            send_json(
+                stdin,
+                serde_json::json!({"id": prompt.codex_request_id.parse::<i64>().unwrap_or(0), "result": response}),
+            )?;
+            return Ok(());
         }
-        .to_string(),
-        thread_id: thread.to_string(),
-        person: person.to_string(),
-        dry_run: false,
-        exit_code: None,
-        codex_binary: Some("codex".to_string()),
-        invocation: vec!["app-server".to_string()],
-    };
-    atelier_core::job::update_status(&job.dir, status)?;
-    let _ = child.kill();
-    Ok(())
+        if Instant::now() > deadline {
+            anyhow::bail!("prompt response timed out: {}", prompt.id);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn agent_message_text(line: &str) -> Option<String> {
+    let message: serde_json::Value = serde_json::from_str(line).ok()?;
+    let item = message.get("params")?.get("item")?;
+    if item.get("type")?.as_str()? == "agentMessage" {
+        item.get("text")?.as_str().map(ToString::to_string)
+    } else {
+        None
+    }
+}
+
+fn message_method(line: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get("method")?
+        .as_str()
+        .map(ToString::to_string)
+}
+
+fn write_job_status(job_dir: &Path, status: &str, thread: &str, person: &str) -> Result<()> {
+    let id = job_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown-job")
+        .to_string();
+    atelier_core::job::update_status(
+        job_dir,
+        atelier_core::job::JobStatus {
+            id,
+            status: status.to_string(),
+            thread_id: thread.to_string(),
+            person: person.to_string(),
+            dry_run: false,
+            exit_code: None,
+            codex_binary: Some("codex".to_string()),
+            invocation: vec!["app-server".to_string()],
+        },
+    )
 }
 
 fn send_json(stdin: &mut std::process::ChildStdin, value: serde_json::Value) -> Result<()> {
