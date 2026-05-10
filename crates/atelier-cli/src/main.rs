@@ -295,7 +295,13 @@ enum JobsCommand {
         /// Project folder path.
         project_path: PathBuf,
         /// Job id to recover.
-        job_id: String,
+        job_id: Option<String>,
+        /// Recover all idle-timeout jobs in the project.
+        #[arg(long)]
+        all_idle: bool,
+        /// Recover all worker-lost jobs in the project.
+        #[arg(long)]
+        all_worker_lost: bool,
         /// Terminate the recovered worker after this many idle seconds.
         #[arg(long, default_value_t = 300)]
         idle_timeout_seconds: u64,
@@ -550,26 +556,32 @@ fn main() -> Result<()> {
             JobsCommand::Recover {
                 project_path,
                 job_id,
+                all_idle,
+                all_worker_lost,
                 idle_timeout_seconds,
             } => {
                 let project_path = resolve_project_arg(&project_path)?;
-                let job_dir = project_path.join(".atelier/jobs").join(&job_id);
-                let status: atelier_core::job::JobStatus = serde_json::from_str(
-                    &std::fs::read_to_string(job_dir.join("status.json"))
-                        .context("read job status")?,
-                )
-                .context("parse job status")?;
-                let context = std::fs::read_to_string(job_dir.join("context.md"))
-                    .context("read job context")?;
-                run_managed_worker(
-                    &job_dir,
-                    &project_path,
-                    &status.thread_id,
-                    &status.person,
-                    &context,
-                    idle_timeout_seconds,
-                )?;
-                println!("Recovered job: {job_id}");
+                if all_idle || all_worker_lost {
+                    let wanted_status = if all_idle {
+                        "idle-timeout"
+                    } else {
+                        "worker-lost"
+                    };
+                    let mut recovered = 0usize;
+                    for status in list_jobs(&project_path)? {
+                        if status.status == wanted_status {
+                            recover_job(&project_path, &status.id, idle_timeout_seconds)?;
+                            println!("Recovered job: {}", status.id);
+                            recovered += 1;
+                        }
+                    }
+                    println!("Recovered {recovered} jobs");
+                } else {
+                    let job_id = job_id
+                        .context("recover requires <job-id>, --all-idle, or --all-worker-lost")?;
+                    recover_job(&project_path, &job_id, idle_timeout_seconds)?;
+                    println!("Recovered job: {job_id}");
+                }
             }
         },
         Command::Skill { command } => match command {
@@ -750,6 +762,24 @@ fn print_prompt_inbox() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn recover_job(project_path: &Path, job_id: &str, idle_timeout_seconds: u64) -> Result<()> {
+    let job_dir = project_path.join(".atelier/jobs").join(job_id);
+    let status: atelier_core::job::JobStatus = serde_json::from_str(
+        &std::fs::read_to_string(job_dir.join("status.json")).context("read job status")?,
+    )
+    .context("parse job status")?;
+    let context =
+        std::fs::read_to_string(job_dir.join("context.md")).context("read job context")?;
+    run_managed_worker(
+        &job_dir,
+        project_path,
+        &status.thread_id,
+        &status.person,
+        &context,
+        idle_timeout_seconds,
+    )
 }
 
 fn print_global_status() -> Result<()> {
