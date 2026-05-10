@@ -76,6 +76,65 @@ fn prompts_list_show_and_respond_update_pending_prompt() {
     assert!(prompt.contains("\"status\": \"Resolved\""));
 }
 
+#[test]
+fn prompts_respond_validates_decisions_and_supports_text_payloads() {
+    let (temp, project, _thread_id) = initialized_project();
+    let job_dir = project.join(".atelier/jobs/job-example");
+    let prompts_dir = job_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir).expect("create prompts dir");
+    std::fs::write(
+        prompts_dir.join("prompt-8.json"),
+        r#"{
+  "id": "prompt-8",
+  "codex_request_id": "8",
+  "method": "item/tool/requestUserInput",
+  "codex_thread_id": "codex-thread-example",
+  "codex_turn_id": "turn-example",
+  "codex_item_id": "tool-example",
+  "status": "Pending",
+  "summary": "Answer tool user-input prompt",
+  "available_decisions": ["answer", "cancel"],
+  "params": {"message": "Need input"}
+}
+"#,
+    )
+    .expect("write prompt");
+
+    Command::cargo_bin("atelier")
+        .expect("atelier binary")
+        .env("HOME", temp.path())
+        .args([
+            "prompts",
+            "respond",
+            project.to_str().expect("utf8 path"),
+            "prompt-8",
+            "approve",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("choose one of: answer, cancel"));
+
+    Command::cargo_bin("atelier")
+        .expect("atelier binary")
+        .env("HOME", temp.path())
+        .args([
+            "prompts",
+            "respond",
+            project.to_str().expect("utf8 path"),
+            "prompt-8",
+            "answer",
+            "--text",
+            "example answer",
+        ])
+        .assert()
+        .success();
+
+    let response =
+        std::fs::read_to_string(job_dir.join("responses/prompt-8.json")).expect("read response");
+    assert!(response.contains("\"decision\": \"answer\""));
+    assert!(response.contains("\"text\": \"example answer\""));
+}
+
 fn initialized_project() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");

@@ -261,6 +261,12 @@ enum PromptsCommand {
         project_path: PathBuf,
         /// Atelier prompt id.
         prompt_id: String,
+        /// Optional text answer for user-input or elicitation prompts.
+        #[arg(long)]
+        text: Option<String>,
+        /// Optional JSON response object to forward to Codex.
+        #[arg(long)]
+        json: Option<String>,
         /// Decision to record.
         decision: String,
     },
@@ -489,9 +495,12 @@ fn main() -> Result<()> {
             PromptsCommand::Respond {
                 project_path,
                 prompt_id,
+                text,
+                json,
                 decision,
             } => {
                 let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
+                let response = build_prompt_response(&prompt, &decision, text, json)?;
                 prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
                 let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
                 std::fs::write(
@@ -502,7 +511,7 @@ fn main() -> Result<()> {
                 std::fs::create_dir_all(&responses_dir)?;
                 std::fs::write(
                     responses_dir.join(format!("{}.json", prompt.id)),
-                    serde_json::to_string_pretty(&serde_json::json!({"decision": decision}))?,
+                    serde_json::to_string_pretty(&response)?,
                 )?;
                 println!("Recorded response {decision} for {prompt_id}");
             }
@@ -821,6 +830,33 @@ fn find_prompt(
         }
     }
     anyhow::bail!("prompt not found: {prompt_id}")
+}
+
+fn build_prompt_response(
+    prompt: &atelier_core::codex_app_server::PendingPrompt,
+    decision: &str,
+    text: Option<String>,
+    json: Option<String>,
+) -> Result<serde_json::Value> {
+    if let Some(json) = json {
+        return serde_json::from_str(&json).context("parse prompt response JSON");
+    }
+    if let Some(text) = text {
+        return Ok(serde_json::json!({"decision": decision, "text": text}));
+    }
+    if !prompt.available_decisions.is_empty()
+        && !prompt
+            .available_decisions
+            .iter()
+            .any(|available| available == decision)
+    {
+        anyhow::bail!(
+            "decision '{decision}' is not available for {}; choose one of: {}",
+            prompt.id,
+            prompt.available_decisions.join(", ")
+        );
+    }
+    Ok(serde_json::json!({"decision": decision}))
 }
 
 fn build_context(person: &str, thread: &str, prompt: &str) -> Result<String> {
