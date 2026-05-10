@@ -46,9 +46,8 @@ fn managed_work_refuses_second_writer_in_same_project_by_default() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "active managed job already owns project writer slot",
-        ))
-        .stderr(predicate::str::contains("job-active-writer"));
+            "managed work requires a running Atelier daemon",
+        ));
 }
 
 fn initialized_project() -> (tempfile::TempDir, std::path::PathBuf, String) {

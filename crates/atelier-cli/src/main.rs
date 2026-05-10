@@ -112,6 +112,9 @@ enum Command {
         /// Terminate an idle managed worker after this many seconds.
         #[arg(long, default_value_t = 300)]
         idle_timeout_seconds: u64,
+        /// Daemon HTTP endpoint for managed work submission.
+        #[arg(long)]
+        daemon_url: Option<String>,
         /// Invocation-time Codex approval policy override.
         #[arg(long)]
         approval_policy: Option<String>,
@@ -747,12 +750,14 @@ fn main() -> Result<()> {
             interactive,
             managed,
             idle_timeout_seconds,
+            daemon_url,
             approval_policy,
             sandbox,
             model,
             search,
             prompt,
         } => {
+            let project_arg = project_path.to_string_lossy().to_string();
             let project_path = resolve_project_arg(&project_path)?;
             let policy = atelier_core::codex::CodexPolicy {
                 approval_policy,
@@ -761,43 +766,48 @@ fn main() -> Result<()> {
                 search,
             };
             let context = build_context(&person, &thread, &prompt)?;
-            if managed {
-                ensure_project_writer_available(&project_path)?;
-            }
-            let job = atelier_core::job::create_job(
-                &project_path,
-                &thread,
-                &person,
-                &prompt,
-                &context,
-                dry_run,
-            )?;
-            let invocation = atelier_core::codex::CodexInvocation::with_policy(
-                &project_path,
-                context.clone(),
-                policy,
-            );
 
-            if dry_run {
-                println!("Job: {}", job.id);
-                println!("Job directory: {}", job.dir.display());
-                println!("Would run: {}", invocation.display_command());
-                println!("\n{}", invocation.prompt);
-            } else if managed {
-                run_managed_app_server_job(
-                    &job,
+            if managed && !dry_run {
+                let response = submit_managed_work_to_daemon(
+                    &daemon_url.unwrap_or_else(default_daemon_url),
+                    &project_arg,
+                    &thread,
+                    &person,
+                    &prompt,
+                    idle_timeout_seconds,
+                )?;
+                println!("Job: {}", response.job_id);
+                println!("Job directory: {}", response.job_dir.display());
+            } else {
+                if managed {
+                    ensure_project_writer_available(&project_path)?;
+                }
+                let job = atelier_core::job::create_job(
                     &project_path,
                     &thread,
                     &person,
+                    &prompt,
                     &context,
-                    idle_timeout_seconds,
+                    dry_run,
                 )?;
-            } else if interactive {
-                let output = invocation.run_interactive()?;
-                finish_job(&job, &thread, &person, output)?;
-            } else {
-                let output = invocation.run()?;
-                finish_job(&job, &thread, &person, output)?;
+                let invocation = atelier_core::codex::CodexInvocation::with_policy(
+                    &project_path,
+                    context.clone(),
+                    policy,
+                );
+
+                if dry_run {
+                    println!("Job: {}", job.id);
+                    println!("Job directory: {}", job.dir.display());
+                    println!("Would run: {}", invocation.display_command());
+                    println!("\n{}", invocation.prompt);
+                } else if interactive {
+                    let output = invocation.run_interactive()?;
+                    finish_job(&job, &thread, &person, output)?;
+                } else {
+                    let output = invocation.run()?;
+                    finish_job(&job, &thread, &person, output)?;
+                }
             }
         }
         Command::Continue {
@@ -1001,7 +1011,7 @@ struct GatewayProjectCreateRequest {
     path: PathBuf,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct DaemonWorkRequest {
     project: String,
     thread: String,
@@ -1009,6 +1019,12 @@ struct DaemonWorkRequest {
     text: String,
     #[serde(default = "default_idle_timeout_seconds")]
     idle_timeout_seconds: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct DaemonWorkResponse {
+    job_id: String,
+    job_dir: PathBuf,
 }
 
 fn default_idle_timeout_seconds() -> u64 {
@@ -1161,6 +1177,80 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         }
     };
     write_json_response(stream, 200, response)
+}
+
+fn default_daemon_url() -> String {
+    std::env::var("ATELIER_DAEMON_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".to_string())
+}
+
+fn submit_managed_work_to_daemon(
+    daemon_url: &str,
+    project: &str,
+    thread: &str,
+    person: &str,
+    text: &str,
+    idle_timeout_seconds: u64,
+) -> Result<DaemonWorkResponse> {
+    let request = DaemonWorkRequest {
+        project: project.to_string(),
+        thread: thread.to_string(),
+        person: person.to_string(),
+        text: text.to_string(),
+        idle_timeout_seconds,
+    };
+    let body = serde_json::to_string(&request).context("serialize daemon work request")?;
+    let response = daemon_http_request(daemon_url, "POST", "/work", &body).with_context(|| {
+        format!(
+            "managed work requires a running Atelier daemon at {daemon_url}; start one with `atelier daemon run`"
+        )
+    })?;
+    serde_json::from_str(&response).context("parse daemon work response")
+}
+
+fn daemon_http_request(base_url: &str, method: &str, path: &str, body: &str) -> Result<String> {
+    let (host, port) = parse_loopback_http_url(base_url)?;
+    let mut stream = TcpStream::connect((host.as_str(), port))
+        .with_context(|| format!("connect daemon at {base_url}"))?;
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream
+        .write_all(request.as_bytes())
+        .context("write daemon request")?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .context("read daemon response")?;
+    let status = response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .context("parse daemon response status")?;
+    let body = response
+        .split("\r\n\r\n")
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+    if !(200..300).contains(&status) {
+        anyhow::bail!("daemon returned HTTP {status}: {body}");
+    }
+    Ok(body)
+}
+
+fn parse_loopback_http_url(base_url: &str) -> Result<(String, u16)> {
+    let remainder = base_url
+        .strip_prefix("http://")
+        .context("daemon URL must start with http://")?;
+    let authority = remainder.split('/').next().unwrap_or(remainder);
+    let (host, port) = authority
+        .rsplit_once(':')
+        .context("daemon URL must include host and port")?;
+    let port = port
+        .parse::<u16>()
+        .with_context(|| format!("parse daemon URL port in {base_url}"))?;
+    Ok((host.to_string(), port))
 }
 
 fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {

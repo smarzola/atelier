@@ -97,11 +97,14 @@ Dry-run a Codex invocation without executing it:
 atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
 ```
 
-Run managed Codex app-server work:
+Run managed Codex app-server work through the daemon:
 
 ```bash
+atelier daemon run --listen 127.0.0.1:8787
 atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
 ```
+
+If the daemon is not listening on the default URL, pass `--daemon-url` or set `ATELIER_DAEMON_URL`.
 
 Continue a Codex session through Atelier:
 

@@ -57,6 +57,7 @@ atelier projects add example-project ~/example-project
 ```bash
 THREAD=$(atelier thread new example-project "First task" --porcelain)
 atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
+# In another terminal, run: atelier daemon run --listen 127.0.0.1:8787
 atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
 ```
 
