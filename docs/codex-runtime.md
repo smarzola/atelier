@@ -103,7 +103,7 @@ When Codex needs user input, it sends a server-initiated JSON-RPC request. Ateli
 
 The gateway response becomes the JSON-RPC response to that exact request id. `serverRequest/resolved` and final item/turn notifications close the pending prompt.
 
-Current managed work mode starts a background Atelier worker for each managed job. The worker owns one Codex app-server process, records `protocol.jsonl`, writes prompt records under `prompts/`, waits for response files under `responses/`, forwards those responses back to Codex, captures the final assistant message in `result.md`, and updates `status.json`. The launcher also records worker stdout/stderr as `worker-stdout.log` and `worker-stderr.log` so failed worker bootstraps are inspectable.
+Current daemon work mode starts a background Atelier worker for each job. The worker owns one Codex app-server process, records `protocol.jsonl`, writes prompt records under `prompts/`, waits for response files under `responses/`, forwards those responses back to Codex, captures the final assistant message in `result.md`, and updates `status.json`. The launcher also records worker stdout/stderr as `worker-stdout.log` and `worker-stderr.log` so failed worker bootstraps are inspectable.
 
 Useful commands:
 
@@ -127,7 +127,7 @@ atelier gateway bind-person --gateway telegram --external-user 2000 --person ali
 curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -H 'Content-Type: application/json' \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
-atelier work <project-or-alias> --thread <thread> --as <person> --managed "task"
+atelier work <project-or-alias> --thread <thread> --as <person> "task"
 atelier jobs list <project-or-alias>
 atelier jobs show <project-or-alias> <job-id>
 atelier prompts inbox
@@ -141,13 +141,13 @@ atelier jobs recover <project-or-alias> --all-idle
 atelier jobs recover <project-or-alias> --all-worker-lost
 ```
 
-Managed workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the managed worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
+Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
 
 Gateway-originated actions append JSON Lines audit events to `~/.atelier/gateway/audit.jsonl` or `$ATELIER_HOME/gateway/audit.jsonl`. The audit log records prompt responses and message-start actions with gateway identifiers, resolved project/thread/person values, job or prompt ids, result, and a Unix timestamp while keeping the project folder as the source of project knowledge.
 
-Atelier records managed app-server thread metadata in the Atelier thread's `codex-sessions.jsonl` file. That lineage stores the Codex app-server thread id, the job id, and the session path when Codex reports one. This keeps recovery and future resume UX grounded in Codex-native state rather than a parallel transcript store.
+Atelier records app-server thread metadata in the Atelier thread's `codex-sessions.jsonl` file. That lineage stores the Codex app-server thread id, the job id, and the session path when Codex reports one. This keeps recovery and future resume UX grounded in Codex-native state rather than a parallel transcript store.
 
-The default project concurrency policy is conservative single-writer: a new managed job refuses to start while another managed job in the same project is `running` or `waiting-for-prompt`. Parallel reads and future worktree-based write strategies can be added explicitly, but the default protects shared project folders from overlapping writes.
+The default project concurrency policy is conservative single-writer: a new job refuses to start while another job in the same project is `running` or `waiting-for-prompt`. Parallel reads and future worktree-based write strategies can be added explicitly, but the default protects shared project folders from overlapping writes.
 
 A terminal passthrough mode can remain useful for local human work, but it is not the managed prompt-relay architecture.
 

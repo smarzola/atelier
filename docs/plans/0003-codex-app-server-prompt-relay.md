@@ -2,7 +2,7 @@
 
 ## Goal
 
-Replace terminal-screen prompt relay ideas with a structured Codex app-server managed-run path. Atelier should be able to start a Codex turn, observe typed events, persist pending prompts, and answer Codex requests from a CLI or gateway later.
+Replace terminal-screen prompt relay ideas with a structured Codex app-server run path. Atelier should be able to start a Codex turn, observe typed events, persist pending prompts, and answer Codex requests from a CLI or gateway later.
 
 ## Non-goals
 
@@ -51,12 +51,12 @@ with stdin/stdout pipes, then:
 
 The fake-Codex test binary should support a deterministic app-server mode that emits fixture events and waits for a response to a request.
 
-## Slice 3: Local managed prompt commands
+## Slice 3: Local prompt commands
 
 Add local prompt-inspection commands before any gateway integration:
 
 ```bash
-atelier work <project> --managed --thread <thread> --as <person> "prompt"
+atelier work <project> --thread <thread> --as <person> "prompt"
 atelier prompts list <project> --thread <thread>
 atelier prompts show <project> <prompt-id>
 atelier prompts respond <project> <prompt-id> accept
@@ -64,11 +64,11 @@ atelier prompts respond <project> <prompt-id> decline
 atelier prompts respond <project> <prompt-id> cancel
 ```
 
-The initial implementation can keep the managed process alive only for the foreground command. If durable background processes are not yet available, document that as a limitation and still persist prompt records and protocol logs.
+The initial implementation can keep the process alive only for the foreground command. If durable background processes are not yet available, document that as a limitation and still persist prompt records and protocol logs.
 
 ## Slice 4: Durable daemon worker
 
-Move managed app-server sessions behind an Atelier daemon/worker:
+Move app-server sessions behind an Atelier daemon/worker:
 
 - one worker process per active project or job;
 - durable job state on disk;

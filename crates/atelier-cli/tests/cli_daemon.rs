@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[test]
-fn daemon_work_endpoint_starts_managed_work() {
+fn daemon_work_endpoint_starts_work() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_and_register(&temp, &project);

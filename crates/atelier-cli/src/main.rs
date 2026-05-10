@@ -106,9 +106,6 @@ enum Command {
         /// Attach Codex directly to the terminal so prompts and approvals can be answered.
         #[arg(long)]
         interactive: bool,
-        /// Use Codex app-server managed mode for structured prompt relay.
-        #[arg(long)]
-        managed: bool,
         /// Terminate an idle managed worker after this many seconds.
         #[arg(long, default_value_t = 300)]
         idle_timeout_seconds: u64,
@@ -748,7 +745,6 @@ fn main() -> Result<()> {
             person,
             dry_run,
             interactive,
-            managed,
             idle_timeout_seconds,
             daemon_url,
             approval_policy,
@@ -767,7 +763,41 @@ fn main() -> Result<()> {
             };
             let context = build_context(&person, &thread, &prompt)?;
 
-            if managed && !dry_run {
+            if dry_run {
+                let job = atelier_core::job::create_job(
+                    &project_path,
+                    &thread,
+                    &person,
+                    &prompt,
+                    &context,
+                    true,
+                )?;
+                let invocation = atelier_core::codex::CodexInvocation::with_policy(
+                    &project_path,
+                    context.clone(),
+                    policy,
+                );
+                println!("Job: {}", job.id);
+                println!("Job directory: {}", job.dir.display());
+                println!("Would run: {}", invocation.display_command());
+                println!("\n{}", invocation.prompt);
+            } else if interactive {
+                let job = atelier_core::job::create_job(
+                    &project_path,
+                    &thread,
+                    &person,
+                    &prompt,
+                    &context,
+                    false,
+                )?;
+                let invocation = atelier_core::codex::CodexInvocation::with_policy(
+                    &project_path,
+                    context.clone(),
+                    policy,
+                );
+                let output = invocation.run_interactive()?;
+                finish_job(&job, &thread, &person, output)?;
+            } else {
                 let response = submit_managed_work_to_daemon(
                     &daemon_url.unwrap_or_else(default_daemon_url),
                     &project_arg,
@@ -778,36 +808,6 @@ fn main() -> Result<()> {
                 )?;
                 println!("Job: {}", response.job_id);
                 println!("Job directory: {}", response.job_dir.display());
-            } else {
-                if managed {
-                    ensure_project_writer_available(&project_path)?;
-                }
-                let job = atelier_core::job::create_job(
-                    &project_path,
-                    &thread,
-                    &person,
-                    &prompt,
-                    &context,
-                    dry_run,
-                )?;
-                let invocation = atelier_core::codex::CodexInvocation::with_policy(
-                    &project_path,
-                    context.clone(),
-                    policy,
-                );
-
-                if dry_run {
-                    println!("Job: {}", job.id);
-                    println!("Job directory: {}", job.dir.display());
-                    println!("Would run: {}", invocation.display_command());
-                    println!("\n{}", invocation.prompt);
-                } else if interactive {
-                    let output = invocation.run_interactive()?;
-                    finish_job(&job, &thread, &person, output)?;
-                } else {
-                    let output = invocation.run()?;
-                    finish_job(&job, &thread, &person, output)?;
-                }
             }
         }
         Command::Continue {
@@ -1201,7 +1201,7 @@ fn submit_managed_work_to_daemon(
     let body = serde_json::to_string(&request).context("serialize daemon work request")?;
     let response = daemon_http_request(daemon_url, "POST", "/work", &body).with_context(|| {
         format!(
-            "managed work requires a running Atelier daemon at {daemon_url}; start one with `atelier daemon run`"
+            "work requires a running Atelier daemon at {daemon_url}; start one with `atelier daemon run`"
         )
     })?;
     serde_json::from_str(&response).context("parse daemon work response")

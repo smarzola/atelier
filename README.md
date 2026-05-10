@@ -14,13 +14,13 @@ Alpha includes:
 - person-scoped memory outside projects;
 - thread and Codex session lineage files;
 - explicit Codex context injection without hidden Codex config mutation;
-- managed Codex app-server workers and prompt relay;
+- Codex app-server workers and prompt relay;
 - job inspection, recovery, global status, and prompt inboxes;
 - a loopback-first HTTP gateway with optional bearer auth;
 - generic gateway message/prompt/project endpoints;
 - an initial Telegram webhook adapter;
 - worker supervision and gateway audit logs;
-- an accepted daemon architecture decision: Atelier-managed work requires an always-alive daemon, and the gateway is hosted inside that daemon.
+- an accepted daemon architecture decision: Atelier work requires an always-alive daemon, and the gateway is hosted inside that daemon.
 
 ## Quickstart
 
@@ -54,7 +54,7 @@ atelier projects add example-project ~/example-project
 
 ### 3. Start the daemon
 
-Atelier-managed work requires an always-alive daemon. The daemon hosts gateway endpoints and supervises managed workers. Keep this running in its own terminal.
+Atelier work requires an always-alive daemon. The daemon hosts gateway endpoints and supervises workers. Keep this running in its own terminal.
 
 ```bash
 atelier daemon run --listen 127.0.0.1:8787
@@ -68,16 +68,16 @@ ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
   --auth-token-env ATELIER_GATEWAY_TOKEN
 ```
 
-### 4. Create a thread and run managed work
+### 4. Create a thread and run work
 
 In another terminal:
 
 ```bash
 THREAD=$(atelier thread new example-project "First task" --porcelain)
-atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
+atelier work example-project --thread "$THREAD" --as alice "Summarize this project"
 ```
 
-Dry-runs and inspection commands can run without the daemon because they do not start managed workers:
+Dry-runs and inspection commands can run without the daemon because they do not start workers:
 
 ```bash
 atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"

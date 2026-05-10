@@ -4,7 +4,7 @@
 
 **Goal:** Build the first end-to-end generic HTTP gateway for Atelier so external systems can route messages, inspect runtime state, and answer prompts without platform-specific assumptions.
 
-**Architecture:** The gateway is a local HTTP server exposed by `atelier gateway serve`. It uses generic JSON event/request types, existing project registry and thread binding files, person memory, managed work jobs, prompt response files, and status/job listing helpers. Platform adapters such as Telegram can be layered on top later.
+**Architecture:** The gateway is a local HTTP server exposed by `atelier gateway serve`. It uses generic JSON event/request types, existing project registry and thread binding files, person memory, work jobs, prompt response files, and status/job listing helpers. Platform adapters such as Telegram can be layered on top later.
 
 **Tech Stack:** Rust 2024, standard library TCP HTTP server for the initial local gateway, `serde`/`serde_json`, existing Atelier core/CLI modules, fake Codex in tests.
 
@@ -68,7 +68,7 @@ cargo test -p atelier-cli --test cli_gateway_server prompt_response_endpoint_rec
 
 ## Slice 5: Message event routing endpoint
 
-**Objective:** Add `POST /events/message` that resolves project alias, thread, person, and text into a managed Atelier work job. The initial endpoint should accept explicit `project`, `thread`, and `person` fields and can later grow gateway binding resolution.
+**Objective:** Add `POST /events/message` that resolves project alias, thread, person, and text into an Atelier work job. The initial endpoint should accept explicit `project`, `thread`, and `person` fields and can later grow gateway binding resolution.
 
 **Files:**
 - Modify: `crates/atelier-cli/src/main.rs`

@@ -8,7 +8,7 @@ Accepted
 
 Atelier projects are durable folders shared by humans, Codex, and potentially multiple gateway users. Multiple Atelier threads may exist in one project at the same time, but write-capable Codex jobs can edit files, run commands, and mutate project-local state.
 
-Allowing multiple managed workers to write to the same folder concurrently risks conflicting edits, confusing prompts, and corrupted runtime state. A future implementation may support safer parallelism through git worktrees or explicit read-only jobs, but the default must be safe and understandable.
+Allowing multiple workers to write to the same folder concurrently risks conflicting edits, confusing prompts, and corrupted runtime state. A future implementation may support safer parallelism through git worktrees or explicit read-only jobs, but the default must be safe and understandable.
 
 ## Decision
 
@@ -33,7 +33,7 @@ Benefits:
 Trade-offs:
 
 - Legitimate parallel work is serialized for now.
-- Long prompt waits can block new managed work until answered, timed out, or reconciled.
+- Long prompt waits can block new work until answered, timed out, or reconciled.
 
 ## Future options
 

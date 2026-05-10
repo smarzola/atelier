@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 
 #[test]
-fn managed_work_requires_running_daemon() {
+fn work_requires_running_daemon() {
     let (temp, project, thread_id) = initialized_project();
     let fake_bin = temp.path().join("fake-bin");
     std::fs::create_dir(&fake_bin).expect("create fake bin");
@@ -25,13 +25,12 @@ fn managed_work_requires_running_daemon() {
             &thread_id,
             "--as",
             "alice",
-            "--managed",
             "Do the managed thing",
         ])
         .assert()
         .failure()
         .stderr(predicates::str::contains(
-            "managed work requires a running Atelier daemon",
+            "work requires a running Atelier daemon",
         ));
 
     let jobs_dir = project.join(".atelier/jobs");

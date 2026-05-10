@@ -2,7 +2,7 @@
 
 ## Alpha milestone
 
-Atelier has entered alpha. The core local CLI, daemon-hosted gateway, daemon-submitted managed Codex app-server path, Telegram adapter, project API, supervision, audit logging, and user-facing usage docs are available for dogfooding.
+Atelier has entered alpha. The core local CLI, daemon-hosted gateway, daemon-submitted Codex app-server path, Telegram adapter, project API, supervision, audit logging, and user-facing usage docs are available for dogfooding.
 
 Next alpha work focuses on hardening the daemonized runtime and release readiness:
 
@@ -10,8 +10,8 @@ Next alpha work focuses on hardening the daemonized runtime and release readines
 - [x] GitHub Release automation.
 - [x] Installation docs for released binaries.
 - [x] Daemon command and daemon-hosted HTTP gateway.
-- [x] Daemon-owned managed work submission.
-- [x] CLI managed work submits to the daemon instead of spawning workers directly.
+- [x] Daemon-owned work submission.
+- [x] CLI work submits to the daemon instead of spawning workers directly.
 - [ ] Prompt/completion notifications from daemon to gateways.
 - [ ] Better session indexing.
 - [ ] Shared-project access controls.
@@ -79,7 +79,7 @@ Expected behavior:
 
 ## Phase 3: Daemon and gateway runtime
 
-Goal: always-alive Atelier daemon with hosted gateways and managed worker orchestration.
+Goal: always-alive Atelier daemon with hosted gateways and worker orchestration.
 
 Implemented capabilities:
 
@@ -91,7 +91,7 @@ Implemented capabilities:
 - bind Telegram topics, reply roots, or synthetic selections to Atelier threads;
 - route messages to home or named projects;
 - daemon-owned `/work` submission endpoint;
-- CLI `atelier work --managed` submits to the daemon;
+- CLI `atelier work` submits to the daemon by default;
 - default to single-writer concurrency per project.
 
 Remaining capabilities:
@@ -124,17 +124,17 @@ Expected behavior:
 - [x] Keep hygiene scanner generic and cover it with a unit test.
 - [x] Pass Codex run policy choices explicitly at invocation time: approval policy, sandbox, model, and search.
 - [x] Support local interactive Codex runs so prompts and approvals are visible/respondable in the attached terminal.
-- [x] Identify Codex app-server as the structured prompt-relay substrate for managed/gateway runs.
+- [x] Identify Codex app-server as the structured prompt-relay substrate for daemon/gateway runs.
 - [x] Implement initial Codex app-server managed runs and pending prompt state.
-- [x] Add local prompt list/show/respond commands for managed-run prompt records.
+- [x] Add local prompt list/show/respond commands for run prompt records.
 - [x] Keep Codex app-server workers alive so prompt responses resume the running Codex turn.
-- [x] List multiple managed jobs in one project.
-- [x] Recover idle managed jobs from saved job context.
-- [x] Reconcile running managed jobs whose worker process has disappeared.
-- [x] Record managed Codex app-server thread/session metadata in Atelier thread lineage.
-- [x] Enforce a conservative single-writer managed-work policy per project.
+- [x] List multiple jobs in one project.
+- [x] Recover idle jobs from saved job context.
+- [x] Reconcile running jobs whose worker process has disappeared.
+- [x] Record Codex app-server thread/session metadata in Atelier thread lineage.
+- [x] Enforce a conservative single-writer work policy per project.
 - [x] Validate prompt response decisions and support text/JSON payload responses.
-- [x] Add job show inspection and durable managed-worker stdout/stderr logs.
+- [x] Add job show inspection and durable worker stdout/stderr logs.
 - [x] Resolve registered project aliases for work/jobs/prompts/sessions.
 - [x] Add global status dashboard across registered projects.
 - [x] Add cross-project prompt inbox.
@@ -144,12 +144,12 @@ Expected behavior:
 - [x] Add gateway person bindings and external-thread routing for message events.
 - [x] Default the HTTP gateway to loopback-only and support bearer-token authentication for adapter/reverse-proxy use.
 - [x] Add an initial Telegram webhook adapter that translates message updates into generic gateway events.
-- [x] Add optional gateway worker supervision that periodically reconciles dead managed workers.
+- [x] Add optional gateway worker supervision that periodically reconciles dead workers.
 - [x] Add file-first audit logs for gateway-originated prompt responses and message-start actions.
 - [x] Add `atelier daemon run` as the primary always-alive runtime.
 - [x] Host gateway endpoints inside the daemon.
 - [x] Add daemon-owned `/work` submission endpoint.
-- [x] Route `atelier work --managed` through the daemon.
+- [x] Route `atelier work` through the daemon by default.
 - [ ] Prompt/completion notifications from daemon to gateways.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.

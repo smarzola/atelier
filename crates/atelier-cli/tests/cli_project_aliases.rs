@@ -2,30 +2,15 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 #[test]
-fn work_accepts_registered_project_alias() {
+fn work_dry_run_accepts_registered_project_alias() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
-    let fake_bin = temp.path().join("fake-bin");
-    std::fs::create_dir(&fake_bin).expect("create fake bin");
-    let fake_codex = fake_bin.join("codex");
-    let recorder = temp.path().join("codex-argv.txt");
-    std::fs::write(
-        &fake_codex,
-        format!(
-            "#!/usr/bin/env sh\nprintf '%s\\n' \"$@\" > {}\necho alias-work-ok\n",
-            recorder.display()
-        ),
-    )
-    .expect("write fake codex");
-    chmod_executable(&fake_codex);
-
     init_and_register(&temp, &project);
     let thread_id = create_thread(&temp, &project);
 
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
-        .env("PATH", prepend_to_path(&fake_bin))
         .args([
             "work",
             "example-project",
@@ -33,14 +18,14 @@ fn work_accepts_registered_project_alias() {
             &thread_id,
             "--as",
             "alice",
+            "--dry-run",
             "Use alias",
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("alias-work-ok"));
-
-    let argv = std::fs::read_to_string(recorder).expect("read argv");
-    assert!(argv.contains(project.to_str().expect("utf8 path")));
+        .stdout(predicate::str::contains(
+            project.to_str().expect("utf8 path"),
+        ));
 }
 
 #[test]
@@ -163,22 +148,4 @@ fn create_thread(temp: &tempfile::TempDir, project: &std::path::Path) -> String 
         .expect("utf8 stdout")
         .trim()
         .to_string()
-}
-
-fn prepend_to_path(dir: &std::path::Path) -> std::ffi::OsString {
-    let original_path = std::env::var_os("PATH").expect("PATH is set");
-    std::env::join_paths(
-        std::iter::once(dir.as_os_str().to_owned())
-            .chain(std::env::split_paths(&original_path).map(|path| path.into_os_string())),
-    )
-    .expect("join PATH")
-}
-
-fn chmod_executable(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-            .expect("chmod executable");
-    }
 }

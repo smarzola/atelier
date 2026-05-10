@@ -6,15 +6,15 @@ Superseded by [ADR 0011: Daemon is the Atelier orchestrator](0011-daemon-is-atel
 
 ## Context
 
-Atelier managed work uses Codex `app-server` so prompt requests can be surfaced as durable Atelier prompt records and answered later. The first implementation ran from the CLI and started a hidden Atelier worker process per managed job. The worker owns one Codex app-server child process and writes file-first artifacts into the job directory.
+Atelier work uses Codex `app-server` so prompt requests can be surfaced as durable Atelier prompt records and answered later. The first implementation ran from the CLI and started a hidden Atelier worker process per job. The worker owns one Codex app-server child process and writes file-first artifacts into the job directory.
 
-This local model proved the worker/job file contract, but it is not the final product architecture. Atelier is an orchestrator, so managed Atelier work requires an always-alive daemon. Raw `cd project && codex` remains valid outside Atelier-managed work.
+This local model proved the worker/job file contract, but it is not the final product architecture. Atelier is an orchestrator, so Atelier work requires an always-alive daemon. Raw `cd project && codex` remains valid outside Atelier work.
 
 ## Historical decision
 
 The first alpha implementation used this local model:
 
-- `atelier work --managed` creates a job directory and spawns `atelier __managed-worker`.
+- `atelier work` creates a job directory and spawns `atelier __managed-worker`.
 - The worker starts `codex app-server` and owns its stdin/stdout protocol stream.
 - The worker records raw app-server JSON-RPC traffic in `protocol.jsonl`.
 - The worker writes prompt records under `prompts/` and waits for response files under `responses/`.

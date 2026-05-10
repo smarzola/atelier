@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 #[test]
-fn jobs_list_shows_multiple_managed_jobs_and_statuses() {
+fn jobs_list_shows_multiple_jobs_and_statuses() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     Command::cargo_bin("atelier")

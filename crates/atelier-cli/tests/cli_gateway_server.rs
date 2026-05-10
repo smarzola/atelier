@@ -132,7 +132,7 @@ fn gateway_projects_create_endpoint_initializes_and_registers_project() {
 }
 
 #[test]
-fn gateway_message_event_starts_managed_work() {
+fn gateway_message_event_starts_work() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_and_register(&temp, &project);
@@ -220,7 +220,7 @@ fn gateway_message_event_resolves_bound_thread_and_person() {
 }
 
 #[test]
-fn telegram_adapter_message_update_starts_managed_work_through_generic_gateway() {
+fn telegram_adapter_message_update_starts_work_through_generic_gateway() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_and_register(&temp, &project);
@@ -325,7 +325,7 @@ fn gateway_requires_bearer_token_when_auth_token_env_is_set() {
 }
 
 #[test]
-fn gateway_supervisor_reconciles_dead_managed_workers_without_requests() {
+fn gateway_supervisor_reconciles_dead_workers_without_requests() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_and_register(&temp, &project);

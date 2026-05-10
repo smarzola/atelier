@@ -2,9 +2,9 @@
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
-**Goal:** Make `atelier daemon run` the required always-alive orchestration layer for Atelier-managed work, with gateways hosted inside the daemon and managed jobs submitted to it instead of directly spawned by the CLI.
+**Goal:** Make `atelier daemon run` the required always-alive orchestration layer for Atelier work, with gateways hosted inside the daemon and jobs submitted to it instead of directly spawned by the CLI.
 
-**Architecture:** Preserve file-first project/job state, but move process ownership into a long-lived daemon. The CLI becomes a client for managed work while remaining able to inspect files and initialize local state. The existing HTTP gateway implementation is reused as a daemon-hosted service, not a separate orchestration concept.
+**Architecture:** Preserve file-first project/job state, but move process ownership into a long-lived daemon. The CLI becomes a client for work while remaining able to inspect files and initialize local state. The existing HTTP gateway implementation is reused as a daemon-hosted service, not a separate orchestration concept.
 
 **Tech Stack:** Rust 2024, existing `atelier-core` and `atelier-cli`, standard library TCP HTTP server initially, file-backed job directories, Codex `app-server` workers.
 
@@ -62,11 +62,11 @@
    git commit -am "feat: make daemon supervise workers by default"
    ```
 
-## Task 3: Add daemon submit endpoint for managed work
+## Task 3: Add daemon submit endpoint for work
 
 **Status:** Done in `157ffea feat: add daemon work submission endpoint`.
 
-**Objective:** Create a daemon-owned API endpoint that starts managed work from a project/thread/person/task request.
+**Objective:** Create a daemon-owned API endpoint that starts work from a project/thread/person/task request.
 
 **Files:**
 - Modify: `crates/atelier-cli/src/main.rs`
@@ -84,7 +84,7 @@
      "text": "Do the task"
    }
    ```
-2. Verify the endpoint creates a job directory and starts a managed worker using the existing fake Codex binary test harness.
+2. Verify the endpoint creates a job directory and starts a worker using the existing fake Codex binary test harness.
 3. Implement the endpoint by reusing the existing gateway message/job creation path.
 4. Return the created job id and job directory.
 5. Audit-log `work_started`.
@@ -93,11 +93,11 @@
    git commit -am "feat: add daemon work submission endpoint"
    ```
 
-## Task 4: Make CLI managed work submit to daemon
+## Task 4: Make CLI work submit to daemon
 
-**Status:** Done in `b4f964d feat: route managed work through daemon`.
+**Status:** Done in `b4f964d feat: route work through daemon`.
 
-**Objective:** Change `atelier work --managed` so it requires a reachable daemon instead of directly spawning `atelier __managed-worker`.
+**Objective:** Change `atelier work` so it requires a reachable daemon instead of directly spawning `atelier __managed-worker`.
 
 **Files:**
 - Modify: `crates/atelier-cli/src/main.rs`
@@ -106,22 +106,22 @@
 
 **Steps:**
 
-1. Add a failing test that `atelier work --managed ...` exits with a clear error when no daemon is reachable.
-2. Add a failing test that, when a daemon is running, `atelier work --managed ...` submits to the daemon and receives a job id.
+1. Add a failing test that `atelier work ...` exits with a clear error when no daemon is reachable.
+2. Add a failing test that, when a daemon is running, `atelier work ...` submits to the daemon and receives a job id.
 3. Add a daemon endpoint configuration option, defaulting to `http://127.0.0.1:8787`, overridable by CLI flag or environment variable.
 4. Replace direct worker spawn in the managed CLI path with an HTTP submission to `/work`.
 5. Keep `atelier __managed-worker` hidden and daemon-internal.
-6. Update docs: managed Atelier work requires `atelier daemon run`.
+6. Update docs: Atelier work requires `atelier daemon run`.
 7. Run tests and commit:
    ```bash
-   git commit -am "feat: require daemon for managed work"
+   git commit -am "feat: require daemon for work"
    ```
 
 ## Task 5: Preserve explicit local escape hatches
 
-**Status:** Done in `b4f964d feat: route managed work through daemon` and the follow-up docs polish slice.
+**Status:** Done in `b4f964d feat: route work through daemon` and the follow-up docs polish slice.
 
-**Objective:** Keep raw Codex and non-managed inspection workflows clear without undermining daemon-required managed work.
+**Objective:** Keep raw Codex and non-managed inspection workflows clear without undermining daemon-required work.
 
 **Files:**
 - Modify: `docs/architecture.md`, `docs/usage.md`, `README.md`
@@ -132,12 +132,12 @@
 1. Document three modes:
    - raw Codex: `cd project && codex`, outside Atelier orchestration;
    - Atelier inspection/setup: CLI can read/write file-backed state without daemon where safe;
-   - Atelier-managed work: requires daemon.
-2. Ensure `atelier work --dry-run` remains daemon-free because it creates no managed worker.
+   - Atelier work: requires daemon.
+2. Ensure `atelier work --dry-run` remains daemon-free because it creates no worker.
 3. Ensure `atelier jobs list`, `atelier prompts inbox`, `atelier projects add`, and initialization commands remain daemon-free.
 4. Run docs checks and commit:
    ```bash
-   git commit -am "docs: clarify daemon-required managed work"
+   git commit -am "docs: clarify daemon-required work"
    ```
 
 ## Task 6: Deprecate gateway-as-runtime wording
@@ -169,11 +169,11 @@
 
 - `atelier daemon run` exists and hosts the current HTTP gateway endpoints.
 - Worker supervision is daemon-owned and on by default for the daemon.
-- `atelier work --managed` requires a running daemon and no longer directly spawns a managed worker from the user-facing CLI path.
+- `atelier work` requires a running daemon and no longer directly spawns a worker from the user-facing CLI path.
 - Existing file-first job directories remain source of truth.
-- Raw `cd project && codex` remains valid but documented as outside Atelier-managed work.
+- Raw `cd project && codex` remains valid but documented as outside Atelier work.
 - Initialization, registry, prompt inspection, job inspection, and dry-run commands remain usable without the daemon where safe.
-- Docs and ADRs clearly say the daemon contains the gateway and is the required orchestration layer for Atelier-managed work.
+- Docs and ADRs clearly say the daemon contains the gateway and is the required orchestration layer for Atelier work.
 - Local verification passes:
   ```bash
   cargo fmt --check

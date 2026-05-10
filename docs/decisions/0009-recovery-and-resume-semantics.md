@@ -21,7 +21,7 @@ Recovery means:
 
 - use an existing Atelier job directory;
 - read saved `context.md`, `request.md`, and `status.json`;
-- start a new managed worker for that job;
+- start a new worker for that job;
 - update the same job status and artifacts;
 - preserve the job id.
 

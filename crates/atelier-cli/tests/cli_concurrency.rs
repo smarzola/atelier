@@ -2,7 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 #[test]
-fn managed_work_refuses_second_writer_in_same_project_by_default() {
+fn work_refuses_second_writer_in_same_project_by_default() {
     let (temp, project, thread_id) = initialized_project();
     let existing_job = project.join(".atelier/jobs/job-active-writer");
     std::fs::create_dir_all(&existing_job).expect("create job dir");
@@ -40,13 +40,12 @@ fn managed_work_refuses_second_writer_in_same_project_by_default() {
             &thread_id,
             "--as",
             "bob",
-            "--managed",
             "Second writer",
         ])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "managed work requires a running Atelier daemon",
+            "work requires a running Atelier daemon",
         ));
 }
 

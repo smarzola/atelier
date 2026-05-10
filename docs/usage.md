@@ -16,7 +16,7 @@ Atelier has three modes. Read these first because they determine whether the dae
 
 1. **Raw Codex:** `cd project && codex`. This is outside Atelier orchestration.
 2. **Atelier setup and inspection:** initialization, registry, thread creation, dry-run, job listing, prompt inspection, and session listing can run from the CLI without the daemon.
-3. **Atelier-managed work:** anything that starts managed Codex work requires `atelier daemon run`. The daemon is the orchestrator and contains the gateway.
+3. **Atelier work:** ordinary `atelier work` requires `atelier daemon run`. The daemon is the orchestrator and contains the gateway.
 
 ## Install Atelier
 
@@ -124,7 +124,7 @@ curl -s http://127.0.0.1:8787/projects \
   -d '{"name":"api-project","path":"/tmp/api-project"}'
 ```
 
-Start managed work through the daemon:
+Start work through the daemon:
 
 ```bash
 curl -s http://127.0.0.1:8787/work \
@@ -179,10 +179,10 @@ Dry-run a Codex invocation without executing it:
 atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
 ```
 
-Run managed Codex app-server work. This requires the daemon from the previous section to already be running:
+Run work. This submits to the daemon and requires the daemon from the previous section to already be running:
 
 ```bash
-atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
+atelier work example-project --thread "$THREAD" --as alice "Summarize this project"
 ```
 
 If the daemon is not listening on the default URL, pass `--daemon-url` or set `ATELIER_DAEMON_URL`.
@@ -241,7 +241,7 @@ atelier prompts respond example-project <prompt-id> answer --text "Example answe
 atelier prompts respond example-project <prompt-id> accept --json '{"decision":"accept"}'
 ```
 
-Recover idle or lost managed jobs:
+Recover idle or lost jobs:
 
 ```bash
 atelier jobs recover example-project <job-id>

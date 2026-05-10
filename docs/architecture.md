@@ -30,7 +30,7 @@ Atelier should not become a second model runtime unless a future decision record
 
 ## High-level flow
 
-Atelier-managed work flows through the daemon. The daemon is the always-alive orchestration layer; gateways are hosted interfaces inside it, and CLI work-starting commands submit to it. Raw `cd project && codex` remains valid, but it is not an Atelier-managed run.
+Atelier work flows through the daemon. The daemon is the always-alive orchestration layer; gateways are hosted interfaces inside it, and CLI work-starting commands submit to it. Raw `cd project && codex` remains valid, but it is not an Atelier-managed run.
 
 ```text
 Gateway / CLI / API
@@ -226,7 +226,7 @@ Atelier job folders should store pointers to Codex session IDs when available:
   result.md
 ```
 
-A project may have multiple Atelier threads in parallel, but write-capable jobs need a concurrency policy. The initial default is `single-writer` per project for managed work: parallel threads are allowed, but a new managed job refuses to start while another job in the same project is `running` or `waiting-for-prompt`. Jobs whose worker process disappeared are reconciled to `worker-lost` before the writer slot is evaluated. Future project configuration may opt into safer parallel strategies such as git worktrees.
+A project may have multiple Atelier threads in parallel, but write-capable jobs need a concurrency policy. The initial default is `single-writer` per project for work: parallel threads are allowed, but a new job refuses to start while another job in the same project is `running` or `waiting-for-prompt`. Jobs whose worker process disappeared are reconciled to `worker-lost` before the writer slot is evaluated. Future project configuration may opt into safer parallel strategies such as git worktrees.
 
 ## Gateway model
 

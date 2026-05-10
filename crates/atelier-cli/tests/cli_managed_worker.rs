@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 #[test]
-fn managed_work_keeps_worker_alive_and_response_completes_turn() {
+fn work_keeps_worker_alive_and_response_completes_turn() {
     let (temp, project, thread_id) = initialized_project();
     let fake_bin = temp.path().join("fake-bin");
     std::fs::create_dir(&fake_bin).expect("create fake bin");
@@ -62,7 +62,6 @@ for line in sys.stdin:
             &thread_id,
             "--as",
             "alice",
-            "--managed",
             "--daemon-url",
             &format!("http://127.0.0.1:{port}"),
             "--idle-timeout-seconds",
