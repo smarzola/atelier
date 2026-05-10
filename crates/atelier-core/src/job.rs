@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::codex::CodexRunOutput;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JobStatus {
     pub id: String,
@@ -12,6 +14,12 @@ pub struct JobStatus {
     pub thread_id: String,
     pub person: String,
     pub dry_run: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub codex_binary: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invocation: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +51,9 @@ pub fn create_job(
             thread_id: thread_id.to_string(),
             person: person.to_string(),
             dry_run,
+            exit_code: None,
+            codex_binary: None,
+            invocation: Vec::new(),
         },
     )?;
 
@@ -62,15 +73,28 @@ pub fn create_dry_run_job(
     create_job(project_path, thread_id, person, request, context, true)
 }
 
-pub fn complete_job(job: &CreatedJob, thread_id: &str, person: &str, success: bool) -> Result<()> {
+pub fn complete_job(
+    job: &CreatedJob,
+    thread_id: &str,
+    person: &str,
+    output: &CodexRunOutput,
+) -> Result<()> {
     write_status(
         &job.dir,
         JobStatus {
             id: job.id.clone(),
-            status: if success { "succeeded" } else { "failed" }.to_string(),
+            status: if output.success {
+                "succeeded"
+            } else {
+                "failed"
+            }
+            .to_string(),
             thread_id: thread_id.to_string(),
             person: person.to_string(),
             dry_run: false,
+            exit_code: output.exit_code,
+            codex_binary: Some(output.codex_binary.clone()),
+            invocation: output.invocation.clone(),
         },
     )
 }

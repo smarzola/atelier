@@ -73,7 +73,7 @@ and records:
 - `result.md` — Codex stdout;
 - `stderr.log` — Codex stderr.
 
-Future versions should also record richer Codex metadata, such as binary path, version, full invocation, exit code, and native Codex session identifiers when available.
+Atelier records Codex invocation metadata and exit code in `status.json`. Future versions should also record richer Codex metadata, such as Codex version and native Codex session identifiers when available.
 
 ## Doctor checks
 

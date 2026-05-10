@@ -94,9 +94,12 @@ Expected behavior:
 
 ## Phase 5: Hardening
 
-- Access control for shared projects.
-- Better session indexing.
-- Audit logs.
-- Cross-platform packaging.
-- Documentation site.
-- CI and release automation.
+- [x] Preserve Codex exit codes when work fails.
+- [x] Record Codex invocation metadata in job status.
+- [x] Keep hygiene scanner generic and cover it with a unit test.
+- [ ] Access control for shared projects.
+- [ ] Better session indexing.
+- [ ] Audit logs.
+- [ ] Cross-platform packaging.
+- [ ] Documentation site.
+- [ ] CI and release automation.

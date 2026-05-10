@@ -28,6 +28,9 @@ pub struct CodexRunOutput {
     pub stdout: String,
     pub stderr: String,
     pub success: bool,
+    pub exit_code: Option<i32>,
+    pub invocation: Vec<String>,
+    pub codex_binary: String,
 }
 
 impl CodexInvocation {
@@ -48,6 +51,12 @@ impl CodexInvocation {
     }
 
     pub fn run(&self) -> Result<CodexRunOutput> {
+        let invocation = vec![
+            "exec".to_string(),
+            "--cd".to_string(),
+            self.project_path.display().to_string(),
+            "<prompt>".to_string(),
+        ];
         let output = Command::new(&self.binary)
             .args(["exec", "--cd"])
             .arg(&self.project_path)
@@ -55,7 +64,11 @@ impl CodexInvocation {
             .output()
             .with_context(|| format!("run {}", self.display_command()))?;
 
-        Ok(output_to_run_output(output))
+        Ok(output_to_run_output(
+            output,
+            self.binary.clone(),
+            invocation,
+        ))
     }
 }
 
@@ -79,25 +92,40 @@ impl CodexResumeInvocation {
     pub fn run(&self) -> Result<CodexRunOutput> {
         let mut command = Command::new(&self.binary);
         command.args(["exec", "resume"]);
+        let mut invocation = vec!["exec".to_string(), "resume".to_string()];
         match &self.target {
             ResumeTarget::Last => {
                 command.arg("--last");
+                invocation.push("--last".to_string());
             }
             ResumeTarget::Session(session_id) => {
                 command.arg(session_id);
+                invocation.push(session_id.clone());
             }
         }
         command.arg(&self.prompt);
+        invocation.push("<prompt>".to_string());
         let output = command.output().context("run codex exec resume")?;
-        Ok(output_to_run_output(output))
+        Ok(output_to_run_output(
+            output,
+            self.binary.clone(),
+            invocation,
+        ))
     }
 }
 
-fn output_to_run_output(output: std::process::Output) -> CodexRunOutput {
+fn output_to_run_output(
+    output: std::process::Output,
+    codex_binary: String,
+    invocation: Vec<String>,
+) -> CodexRunOutput {
     CodexRunOutput {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         success: output.status.success(),
+        exit_code: output.status.code(),
+        invocation,
+        codex_binary,
     }
 }
 

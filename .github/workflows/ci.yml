@@ -16,5 +16,7 @@ jobs:
         run: cargo fmt --check
       - name: Run tests
         run: cargo test --workspace
+      - name: Run hygiene unit tests
+        run: python -m unittest discover -s . -p 'tests_*.py'
       - name: Public hygiene scan
         run: ./scripts/hygiene-scan.sh

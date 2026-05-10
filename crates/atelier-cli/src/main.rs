@@ -484,7 +484,7 @@ fn finish_job(
 ) -> Result<()> {
     std::fs::write(job.dir.join("result.md"), &output.stdout)?;
     std::fs::write(job.dir.join("stderr.log"), &output.stderr)?;
-    atelier_core::job::complete_job(job, thread, person, output.success)?;
+    atelier_core::job::complete_job(job, thread, person, &output)?;
     println!("Job: {}", job.id);
     println!("Job directory: {}", job.dir.display());
     println!(
@@ -498,7 +498,7 @@ fn finish_job(
     print!("{}", output.stdout);
     if !output.success {
         eprint!("{}", output.stderr);
-        std::process::exit(1);
+        std::process::exit(output.exit_code.unwrap_or(1));
     }
     Ok(())
 }
