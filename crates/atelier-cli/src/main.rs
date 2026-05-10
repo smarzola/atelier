@@ -1,4 +1,5 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, Stdio};
 use std::time::{Duration, Instant};
@@ -230,6 +231,12 @@ enum PeopleMemoryCommand {
 
 #[derive(Debug, Subcommand)]
 enum GatewayCommand {
+    /// Run the generic local HTTP gateway.
+    Serve {
+        /// Listen address, for example 127.0.0.1:8787.
+        #[arg(long, default_value = "127.0.0.1:8787")]
+        listen: String,
+    },
     /// Bind an external gateway thread to an Atelier thread.
     Bind {
         /// Project folder path.
@@ -471,6 +478,9 @@ fn main() -> Result<()> {
             }
         }
         Command::Gateway { command } => match command {
+            GatewayCommand::Serve { listen } => {
+                serve_gateway(&listen)?;
+            }
             GatewayCommand::Bind {
                 project_path,
                 thread,
@@ -882,6 +892,240 @@ fn print_global_status() -> Result<()> {
 
 fn resolve_project_arg(project: &Path) -> Result<PathBuf> {
     atelier_core::registry::resolve_project_path(project.to_string_lossy().as_ref())
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GatewayPromptResponseRequest {
+    project: String,
+    prompt_id: String,
+    decision: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    json: Option<String>,
+}
+
+fn serve_gateway(listen: &str) -> Result<()> {
+    let listener = TcpListener::bind(listen).with_context(|| format!("bind gateway {listen}"))?;
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                if let Err(error) = handle_gateway_stream(&mut stream) {
+                    let _ = write_json_response(
+                        &mut stream,
+                        500,
+                        serde_json::json!({"error": error.to_string()}),
+                    );
+                }
+            }
+            Err(error) => return Err(error).context("accept gateway connection"),
+        }
+    }
+    Ok(())
+}
+
+fn handle_gateway_stream(stream: &mut TcpStream) -> Result<()> {
+    let (method, path, body) = read_http_request(stream)?;
+    let response = match (method.as_str(), path.as_str()) {
+        ("GET", "/health") => serde_json::json!({"status":"ok"}),
+        ("GET", "/status") => gateway_status_json()?,
+        ("GET", "/jobs") => gateway_jobs_json()?,
+        ("GET", "/prompts") => gateway_prompts_json()?,
+        ("POST", "/prompts/respond") => {
+            let request: GatewayPromptResponseRequest = serde_json::from_str(&body)?;
+            respond_to_prompt(
+                &resolve_project_arg(Path::new(&request.project))?,
+                &request.prompt_id,
+                &request.decision,
+                request.text,
+                request.json,
+            )?;
+            serde_json::json!({"status":"recorded","prompt_id":request.prompt_id})
+        }
+        ("POST", "/events/message") => {
+            let event: atelier_core::gateway::GatewayMessageEvent = serde_json::from_str(&body)?;
+            let project = event.project.context("message event requires project")?;
+            let thread = event.thread.context("message event requires thread")?;
+            let person = event.person.context("message event requires person")?;
+            let project_path = resolve_project_arg(Path::new(&project))?;
+            ensure_project_writer_available(&project_path)?;
+            let context = build_context(&person, &thread, &event.text)?;
+            let job = atelier_core::job::create_job(
+                &project_path,
+                &thread,
+                &person,
+                &event.text,
+                &context,
+                false,
+            )?;
+            run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
+            serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir})
+        }
+        _ => {
+            write_json_response(stream, 404, serde_json::json!({"error":"not found"}))?;
+            return Ok(());
+        }
+    };
+    write_json_response(stream, 200, response)
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<(String, String, String)> {
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    let mut buffer = Vec::new();
+    let mut temp = [0_u8; 1024];
+    loop {
+        let bytes = stream.read(&mut temp).context("read http request")?;
+        if bytes == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..bytes]);
+        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let header_end = buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)
+        .context("http request missing header terminator")?;
+    let headers = String::from_utf8_lossy(&buffer[..header_end]);
+    let request_line = headers.lines().next().context("missing request line")?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts
+        .next()
+        .context("missing http method")?
+        .to_string();
+    let path = request_parts
+        .next()
+        .context("missing http path")?
+        .to_string();
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+    while buffer.len() < header_end + content_length {
+        let bytes = stream.read(&mut temp).context("read http body")?;
+        if bytes == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..bytes]);
+    }
+    let body =
+        String::from_utf8_lossy(&buffer[header_end..header_end + content_length]).to_string();
+    Ok((method, path, body))
+}
+
+fn write_json_response(
+    stream: &mut TcpStream,
+    status: u16,
+    value: serde_json::Value,
+) -> Result<()> {
+    let reason = if status == 200 {
+        "OK"
+    } else if status == 404 {
+        "Not Found"
+    } else {
+        "Internal Server Error"
+    };
+    let body = serde_json::to_string(&value)?;
+    write!(
+        stream,
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )?;
+    Ok(())
+}
+
+fn gateway_status_json() -> Result<serde_json::Value> {
+    let projects = atelier_core::registry::list_projects()?;
+    let mut jobs = Vec::new();
+    let mut waiting_prompts = 0usize;
+    for project in &projects {
+        for status in list_jobs(&project.path)? {
+            if status.status == "waiting-for-prompt" {
+                waiting_prompts += list_prompts(&project.path)?
+                    .into_iter()
+                    .filter(|(_job_id, prompt)| {
+                        prompt.status
+                            == atelier_core::codex_app_server::PendingPromptStatus::Pending
+                    })
+                    .count();
+            }
+            jobs.push(status);
+        }
+    }
+    Ok(serde_json::json!({
+        "projects": projects.len(),
+        "active_jobs": jobs.iter().filter(|status| status.status == "running" || status.status == "waiting-for-prompt").count(),
+        "waiting_prompts": waiting_prompts,
+        "worker_lost_jobs": jobs.iter().filter(|status| status.status == "worker-lost").count(),
+        "idle_timeout_jobs": jobs.iter().filter(|status| status.status == "idle-timeout").count(),
+    }))
+}
+
+fn gateway_jobs_json() -> Result<serde_json::Value> {
+    let mut jobs = Vec::new();
+    for project in atelier_core::registry::list_projects()? {
+        for status in list_jobs(&project.path)? {
+            jobs.push(serde_json::json!({
+                "project": project.name,
+                "id": status.id,
+                "status": status.status,
+                "thread_id": status.thread_id,
+                "person": status.person,
+            }));
+        }
+    }
+    Ok(serde_json::json!({"jobs": jobs}))
+}
+
+fn gateway_prompts_json() -> Result<serde_json::Value> {
+    let mut prompts = Vec::new();
+    for project in atelier_core::registry::list_projects()? {
+        for (job_id, prompt) in list_prompts(&project.path)? {
+            if prompt.status == atelier_core::codex_app_server::PendingPromptStatus::Pending {
+                prompts.push(serde_json::json!({
+                    "project": project.name,
+                    "job_id": job_id,
+                    "id": prompt.id,
+                    "summary": prompt.summary,
+                    "method": prompt.method,
+                    "available_decisions": prompt.available_decisions,
+                }));
+            }
+        }
+    }
+    Ok(serde_json::json!({"prompts": prompts}))
+}
+
+fn respond_to_prompt(
+    project_path: &Path,
+    prompt_id: &str,
+    decision: &str,
+    text: Option<String>,
+    json: Option<String>,
+) -> Result<()> {
+    let (job_dir, mut prompt) = find_prompt(project_path, prompt_id)?;
+    let response = build_prompt_response(&prompt, decision, text, json)?;
+    prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
+    std::fs::write(
+        job_dir.join("prompts").join(format!("{}.json", prompt.id)),
+        serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
+    )?;
+    let responses_dir = job_dir.join("responses");
+    std::fs::create_dir_all(&responses_dir)?;
+    std::fs::write(
+        responses_dir.join(format!("{}.json", prompt.id)),
+        serde_json::to_string_pretty(&response)?,
+    )?;
+    Ok(())
 }
 
 fn show_job(project_path: &Path, job_id: &str) -> Result<()> {

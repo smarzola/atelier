@@ -91,6 +91,7 @@ dependencies = [
  "atelier-core",
  "clap",
  "predicates",
+ "serde",
  "serde_json",
  "tempfile",
 ]
