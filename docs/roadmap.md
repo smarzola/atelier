@@ -7,6 +7,7 @@
 - [x] Record Codex runtime boundary decision.
 - [x] Record context injection decision.
 - [x] Create initial public GitHub repository.
+- [x] Plan the Atelier home skills pack: `docs/plans/0001-home-skills-pack.md`.
 
 ## Phase 1: Minimal local CLI
 

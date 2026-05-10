@@ -116,3 +116,7 @@ Gateway / CLI / API
 ## Status
 
 Early design and bootstrap phase.
+
+## Next plans
+
+- [Atelier Home Skills Pack](docs/plans/0001-home-skills-pack.md) — first Codex-native skills that let Atelier understand, operate, maintain, and improve itself from the home workspace and project folders.
