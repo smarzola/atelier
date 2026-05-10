@@ -21,6 +21,11 @@ enum Command {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Manage person identities and person-scoped memory.
+    People {
+        #[command(subcommand)]
+        command: PeopleCommand,
+    },
     /// Manage one Atelier thread.
     Thread {
         #[command(subcommand)]
@@ -68,6 +73,31 @@ enum ProjectCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum PeopleCommand {
+    /// Add a person in global Atelier state.
+    Add {
+        /// Stable person id/name.
+        id: String,
+    },
+    /// Manage person-scoped memory.
+    Memory {
+        #[command(subcommand)]
+        command: PeopleMemoryCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum PeopleMemoryCommand {
+    /// Replace a person's memory text.
+    Set {
+        /// Stable person id/name.
+        id: String,
+        /// Person memory body.
+        memory: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum ThreadCommand {
     /// Create a new Atelier thread in a project.
     New {
@@ -103,6 +133,18 @@ fn main() -> Result<()> {
                     path.display()
                 );
             }
+        },
+        Command::People { command } => match command {
+            PeopleCommand::Add { id } => {
+                let memory_path = atelier_core::people::add_person(&id)?;
+                println!("Added person {id} at {}", memory_path.display());
+            }
+            PeopleCommand::Memory { command } => match command {
+                PeopleMemoryCommand::Set { id, memory } => {
+                    let memory_path = atelier_core::people::set_person_memory(&id, &memory)?;
+                    println!("Updated memory for {id} at {}", memory_path.display());
+                }
+            },
         },
         Command::Thread { command } => match command {
             ThreadCommand::New {
@@ -146,8 +188,14 @@ fn main() -> Result<()> {
             dry_run,
             prompt,
         } => {
+            let person_memory = atelier_core::people::read_person_memory(&person)?;
+            let person_memory_section = if person_memory.trim().is_empty() {
+                "Person memory: none\n".to_string()
+            } else {
+                format!("Person memory:\n{}\n", person_memory.trim())
+            };
             let context = format!(
-                "<atelier-context>\nCurrent person: {person}\nThread: {thread}\nBoundary:\n- This context is about the current invocation.\n- Project facts belong in project files.\n</atelier-context>\n\n<user-task>\n{prompt}\n</user-task>\n"
+                "<atelier-context>\nCurrent person: {person}\nThread: {thread}\n{person_memory_section}Boundary:\n- This context is about the current person and invocation.\n- Person memory must only describe the person, never project facts.\n- Project facts belong in project files.\n</atelier-context>\n\n<user-task>\n{prompt}\n</user-task>\n"
             );
             let job = atelier_core::job::create_job(
                 &project_path,

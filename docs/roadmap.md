@@ -48,8 +48,8 @@ Possible commands:
 
 ```bash
 atelier people add alice
-atelier people memory edit alice
-atelier work --as alice <project> "prompt"
+atelier people memory set alice "Prefers concise progress updates."
+atelier work <project> --as alice --thread <thread-id> "prompt"
 ```
 
 Expected behavior:
