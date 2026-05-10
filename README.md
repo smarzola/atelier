@@ -4,9 +4,97 @@ Atelier is a project-native agent runtime for people who want autonomous agents 
 
 Atelier is intentionally opinionated. It does not try to be a general model router or a second tool ecosystem. Codex CLI is the agentic worker. Atelier provides the surrounding runtime: identity, project routing, gateways, session discovery, and job lifecycle.
 
-## Thesis
+## Status: alpha
 
-Autonomous agents should not be organized primarily around ephemeral chat sessions. Human work is organized around projects: folders, notes, instructions, tools, artifacts, and history. Atelier makes the project folder the durable unit of agent work.
+Atelier is in alpha. The core local CLI and local gateway are usable for dogfooding, but interfaces may still change before stable releases.
+
+Alpha includes:
+
+- project/home initialization and registry aliases;
+- person-scoped memory outside projects;
+- thread and Codex session lineage files;
+- explicit Codex context injection without hidden Codex config mutation;
+- managed Codex app-server workers and prompt relay;
+- job inspection, recovery, global status, and prompt inboxes;
+- a loopback-first HTTP gateway with optional bearer auth;
+- generic gateway message/prompt/project endpoints;
+- an initial Telegram webhook adapter;
+- worker supervision and gateway audit logs.
+
+## Quickstart
+
+### 1. Install prerequisites
+
+Install Rust and Codex CLI, then authenticate Codex:
+
+```bash
+npm i -g @openai/codex
+codex login
+```
+
+For development from source:
+
+```bash
+git clone https://github.com/smarzola/atelier.git
+cd atelier
+cargo build --release
+export PATH="$PWD/target/release:$PATH"
+```
+
+### 2. Create a home workspace and a project
+
+```bash
+atelier home init ~/atelier-home
+atelier project init ~/example-project --name example-project
+atelier projects add example-project ~/example-project
+```
+
+### 3. Create a thread and run work
+
+```bash
+THREAD=$(atelier thread new example-project "First task" --porcelain)
+atelier work example-project --thread "$THREAD" --as alice --dry-run "Summarize this project"
+atelier work example-project --thread "$THREAD" --as alice --managed "Summarize this project"
+```
+
+### 4. Inspect runtime state
+
+```bash
+atelier status
+atelier jobs list example-project
+atelier prompts inbox
+atelier sessions example-project --thread "$THREAD"
+```
+
+### 5. Run the local gateway
+
+```bash
+ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \
+  --listen 127.0.0.1:8787 \
+  --auth-token-env ATELIER_GATEWAY_TOKEN \
+  --supervise-workers
+```
+
+Project registry API:
+
+```bash
+curl -s http://127.0.0.1:8787/projects \
+  -H "Authorization: Bearer replace-with-secret"
+
+curl -s http://127.0.0.1:8787/projects \
+  -H "Authorization: Bearer replace-with-secret" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"api-project","path":"/tmp/api-project"}'
+```
+
+Messages can be routed through the generic event endpoint:
+
+```bash
+curl -s http://127.0.0.1:8787/events/message \
+  -H "Authorization: Bearer replace-with-secret" \
+  -H 'Content-Type: application/json' \
+  -d '{"gateway":"example-gateway","project":"example-project","thread":"thread-example","person":"alice","text":"Run this task"}'
+```
 
 ## Core principles
 
@@ -49,8 +137,8 @@ Autonomous agents should not be organized primarily around ephemeral chat sessio
    - Multiple threads may exist in one project, with conservative write concurrency by default.
 
 10. **File-first and inspectable**
-   - Prefer readable files and folders over opaque databases for project state.
-   - Use databases only for indexes, locks, gateway bookkeeping, or performance.
+    - Prefer readable files and folders over opaque databases for project state.
+    - Use databases only for indexes, locks, gateway bookkeeping, or performance.
 
 11. **Public examples use generic identities**
     - Documentation, tests, examples, and fixtures use generic names such as Alice, Bob, and Carol.
@@ -70,7 +158,7 @@ Codex already provides important primitives Atelier should use rather than dupli
 
 Atelier's job is to make these project-native and multi-person.
 
-## Proposed project layout
+## Project layout
 
 A project may look like this:
 
@@ -99,7 +187,7 @@ The `.atelier` folder stores Atelier's project-local runtime artifacts. Codex-na
 Gateway / CLI / API
         |
         v
- Atelier daemon
+ Atelier runtime
         |
         +--> identity resolver --> person memory
         |
@@ -110,17 +198,13 @@ Gateway / CLI / API
         +--> job manager -------> .atelier/jobs/<job-id>/
         |
         v
- codex exec / codex resume inside the project root
+ Codex app-server / codex exec inside the project root
 ```
 
-## Status
+## Documentation
 
-Early implementation phase. The local CLI can initialize home/project workspaces and threads, resolve registered project aliases, inject person-scoped context into Codex work, run managed Codex app-server jobs, relay structured prompts through durable prompt files, show a global status dashboard, inspect jobs, recover idle/lost jobs from saved context, reconcile lost workers, list cross-project prompt inboxes, preserve Codex app-server thread lineage, and run a generic local HTTP gateway for platform-neutral message/prompt routing. The gateway defaults to loopback-only listening, can require a bearer token via `--auth-token-env`, includes an initial Telegram webhook adapter that translates message updates into the generic gateway event model, can supervise worker state with `--supervise-workers`, and records gateway-originated prompt/message actions in a file-first audit log.
-
-## Runtime requirements
-
-Atelier uses Codex CLI as an external runtime. Install and authenticate Codex separately, then let Atelier discover it from `PATH` or a configured binary path. See [Codex Runtime](docs/codex-runtime.md).
-
-## Next plans
-
-- [Atelier Home Skills Pack](docs/plans/0001-home-skills-pack.md) — first Codex-native skills that let Atelier understand, operate, maintain, and improve itself from the home workspace and project folders.
+- [Usage Guide](docs/usage.md)
+- [Codex Runtime](docs/codex-runtime.md)
+- [Architecture](docs/architecture.md)
+- [Principles](docs/principles.md)
+- [Roadmap](docs/roadmap.md)

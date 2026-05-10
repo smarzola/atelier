@@ -1,5 +1,17 @@
 # Roadmap
 
+## Alpha milestone
+
+Atelier has entered alpha. The core local CLI, managed Codex app-server path, gateway, Telegram adapter, project API, supervision, audit logging, and user-facing usage docs are available for dogfooding.
+
+Next alpha work focuses on packaging and release readiness:
+
+- [ ] Cross-platform binary builds.
+- [ ] GitHub Release automation.
+- [ ] Installation docs for released binaries.
+- [ ] Better session indexing.
+- [ ] Shared-project access controls.
+
 ## Phase 0: Design scaffold
 
 - [x] Define project thesis.
@@ -129,3 +141,4 @@ Expected behavior:
 - [ ] Cross-platform packaging.
 - [ ] Documentation site.
 - [ ] CI and release automation.
+- [x] Publish alpha README quickstart and usage guide.
