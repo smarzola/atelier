@@ -99,6 +99,10 @@ pub fn complete_job(
     )
 }
 
+pub fn update_status(job_dir: &Path, status: JobStatus) -> Result<()> {
+    write_status(job_dir, status)
+}
+
 fn write_status(job_dir: &Path, status: JobStatus) -> Result<()> {
     let status_json = serde_json::to_string_pretty(&status).context("serialize job status")?;
     fs::write(job_dir.join("status.json"), status_json).context("write job status")?;

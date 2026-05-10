@@ -1,6 +1,8 @@
-use std::path::PathBuf;
+use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Stdio};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
@@ -78,6 +80,9 @@ enum Command {
         /// Attach Codex directly to the terminal so prompts and approvals can be answered.
         #[arg(long)]
         interactive: bool,
+        /// Use Codex app-server managed mode for structured prompt relay.
+        #[arg(long)]
+        managed: bool,
         /// Invocation-time Codex approval policy override.
         #[arg(long)]
         approval_policy: Option<String>,
@@ -421,6 +426,7 @@ fn main() -> Result<()> {
             person,
             dry_run,
             interactive,
+            managed,
             approval_policy,
             sandbox,
             model,
@@ -453,6 +459,8 @@ fn main() -> Result<()> {
                 println!("Job directory: {}", job.dir.display());
                 println!("Would run: {}", invocation.display_command());
                 println!("\n{}", invocation.prompt);
+            } else if managed {
+                run_managed_app_server_job(&job, &project_path, &thread, &person, &context)?;
             } else if interactive {
                 let output = invocation.run_interactive()?;
                 finish_job(&job, &thread, &person, output)?;
@@ -522,6 +530,149 @@ fn build_context(person: &str, thread: &str, prompt: &str) -> Result<String> {
     Ok(format!(
         "<atelier-context>\nCurrent person: {person}\nThread: {thread}\n{person_memory_section}Boundary:\n- This context is about the current person and invocation.\n- Person memory must only describe the person, never project facts.\n- Project facts belong in project files.\n</atelier-context>\n\n<user-task>\n{prompt}\n</user-task>\n"
     ))
+}
+
+fn run_managed_app_server_job(
+    job: &atelier_core::job::CreatedJob,
+    project_path: &Path,
+    thread: &str,
+    person: &str,
+    context: &str,
+) -> Result<()> {
+    let mut child = ProcessCommand::new("codex")
+        .arg("app-server")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("start codex app-server")?;
+
+    let mut stdin = child.stdin.take().context("codex app-server stdin")?;
+    let stdout = child.stdout.take().context("codex app-server stdout")?;
+    let mut reader = BufReader::new(stdout);
+    let protocol_path = job.dir.join("protocol.jsonl");
+    let mut protocol = std::fs::File::create(&protocol_path).context("create protocol log")?;
+
+    send_json(
+        &mut stdin,
+        serde_json::json!({
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "clientInfo": {"name": "atelier", "title": "Atelier", "version": env!("CARGO_PKG_VERSION")},
+                "capabilities": {"experimentalApi": true, "requestAttestation": false}
+            }
+        }),
+    )?;
+    send_json(
+        &mut stdin,
+        serde_json::json!({"method": "initialized", "params": {}}),
+    )?;
+    send_json(
+        &mut stdin,
+        serde_json::json!({
+            "id": 2,
+            "method": "thread/start",
+            "params": {"cwd": project_path, "approvalPolicy": "on-request", "sandbox": "workspace-write"}
+        }),
+    )?;
+
+    let codex_thread_id = read_until_response_thread(&mut reader, &mut protocol, 2)?;
+    send_json(
+        &mut stdin,
+        serde_json::json!({
+            "id": 3,
+            "method": "turn/start",
+            "params": {
+                "threadId": codex_thread_id,
+                "input": [{"type": "text", "text": context, "textElements": []}]
+            }
+        }),
+    )?;
+
+    let mut waiting_for_prompt = false;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let bytes = reader
+            .read_line(&mut line)
+            .context("read codex app-server")?;
+        if bytes == 0 {
+            break;
+        }
+        protocol
+            .write_all(line.as_bytes())
+            .context("write protocol")?;
+        if let Some(prompt) = atelier_core::codex_app_server::parse_pending_prompt(line.trim_end())
+        {
+            let prompts_dir = job.dir.join("prompts");
+            std::fs::create_dir_all(&prompts_dir).context("create prompts dir")?;
+            std::fs::write(
+                prompts_dir.join(format!("{}.json", prompt.id)),
+                serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
+            )
+            .context("write prompt")?;
+            println!("Job: {}", job.id);
+            println!("Job directory: {}", job.dir.display());
+            println!("Pending prompt: {}", prompt.id);
+            println!("{}", prompt.summary);
+            waiting_for_prompt = true;
+            break;
+        }
+    }
+
+    let status = atelier_core::job::JobStatus {
+        id: job.id.clone(),
+        status: if waiting_for_prompt {
+            "waiting-for-prompt"
+        } else {
+            "succeeded"
+        }
+        .to_string(),
+        thread_id: thread.to_string(),
+        person: person.to_string(),
+        dry_run: false,
+        exit_code: None,
+        codex_binary: Some("codex".to_string()),
+        invocation: vec!["app-server".to_string()],
+    };
+    atelier_core::job::update_status(&job.dir, status)?;
+    let _ = child.kill();
+    Ok(())
+}
+
+fn send_json(stdin: &mut std::process::ChildStdin, value: serde_json::Value) -> Result<()> {
+    writeln!(stdin, "{}", serde_json::to_string(&value)?).context("write app-server message")?;
+    stdin.flush().context("flush app-server message")
+}
+
+fn read_until_response_thread(
+    reader: &mut BufReader<std::process::ChildStdout>,
+    protocol: &mut std::fs::File,
+    response_id: i64,
+) -> Result<String> {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        let bytes = reader
+            .read_line(&mut line)
+            .context("read app-server response")?;
+        if bytes == 0 {
+            anyhow::bail!("codex app-server closed before thread/start response");
+        }
+        protocol
+            .write_all(line.as_bytes())
+            .context("write protocol")?;
+        let message: serde_json::Value = serde_json::from_str(line.trim_end())
+            .ok()
+            .unwrap_or_default();
+        if message.get("id").and_then(serde_json::Value::as_i64) == Some(response_id) {
+            return message["result"]["thread"]["id"]
+                .as_str()
+                .map(ToString::to_string)
+                .context("thread/start response missing thread id");
+        }
+    }
 }
 
 fn finish_job(
