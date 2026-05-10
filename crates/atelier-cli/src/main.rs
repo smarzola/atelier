@@ -452,10 +452,16 @@ fn main() -> Result<()> {
         Command::Project { command } => match command {
             ProjectCommand::Init { path, name } => {
                 atelier_core::project::init_project(&path, &name)?;
+                let project = atelier_core::registry::add_project(&name, &path)?;
                 println!(
                     "Initialized Atelier project '{}' at {}",
                     name,
                     path.display()
+                );
+                println!(
+                    "Registered project {} at {}",
+                    project.name,
+                    project.path.display()
                 );
             }
         },

@@ -2,7 +2,7 @@
 
 Atelier is a project-native runtime around Codex CLI.
 
-The idea is simple: people work in projects, so agents should work in projects too. A project is a normal folder with `AGENTS.md`, optional Codex skills/MCP configuration, and an `.atelier/` runtime folder for threads, jobs, prompts, and session lineage. Atelier adds the always-alive daemon, gateway/API surface, person identity, and job lifecycle around Codex. Codex remains the only agentic worker.
+The idea is simple: people work in projects, so agents should work in projects too. Atelier adds an always-alive daemon, gateway/API surface, person identity, project routing, threads, jobs, prompt relay, and session lineage around Codex. Codex remains the only agentic worker.
 
 ## Status: alpha
 
@@ -11,8 +11,8 @@ Atelier is usable for dogfooding, but interfaces may change before stable releas
 The alpha currently supports:
 
 - home workspace initialization;
-- project initialization and registry aliases;
 - person-scoped memory that is injected into Atelier-launched Codex work;
+- project initialization with automatic registry aliases;
 - daemon-managed `atelier work`;
 - dry-runs without a daemon;
 - threads, jobs, prompts, recovery, and session lineage;
@@ -47,18 +47,38 @@ cargo build --release
 export PATH="$PWD/target/release:$PATH"
 ```
 
-### 2. Create a home workspace and a project
+### 2. Create the home workspace and person profile
 
-Atelier has a home workspace for global runtime state and person memory. Project knowledge does not go there; it stays in project folders.
+Atelier's home workspace stores global runtime state and person memory. Person memory describes people only. Project facts belong in project folders.
 
 ```bash
 atelier home init ~/atelier-home
-mkdir -p ~/hello-world
-atelier project init ~/hello-world --name hello-world
-atelier projects add hello-world ~/hello-world
+atelier people add alice
+atelier people memory set alice "Prefers short, practical examples."
 ```
 
-Add ordinary project files as you would for raw Codex:
+### 3. Start the daemon
+
+Atelier is daemon-first. Ordinary `atelier work` is daemon-managed by default. If the daemon is not running, work fails instead of silently starting unmanaged local work.
+
+Run this in a separate terminal and leave it running:
+
+```bash
+atelier daemon run --listen 127.0.0.1:8787
+```
+
+The daemon hosts the local API, supervises Codex workers, and is the surface that gateways use.
+
+### 4. Create a project
+
+Project initialization now does the obvious thing: it creates the project scaffold and registers the project alias in one command.
+
+```bash
+mkdir -p ~/hello-world
+atelier project init ~/hello-world --name hello-world
+```
+
+Add project instructions and content:
 
 ```bash
 cat > ~/hello-world/README.md <<'EOF'
@@ -75,29 +95,13 @@ Keep outputs small and beginner friendly. Use files in this folder as source of 
 EOF
 ```
 
-At this point raw Codex is still valid:
+### 5. Create a thread and dry-run the first task
+
+Threads are workstreams inside projects. A dry-run is useful before the first real task because it shows the exact context Atelier will inject into Codex.
 
 ```bash
-cd ~/hello-world
-codex
-```
-
-Raw Codex sees the project files. What it does not get is Atelier's person identity, gateway routing, job tracking, prompt relay, and session lineage.
-
-### 3. Add a person and start a thread
-
-Person memory is global and person-scoped. It should describe the person, not the project.
-
-```bash
-atelier people add alice
-atelier people memory set alice "Prefers short, practical examples."
-
 THREAD=$(atelier thread new hello-world "Build a friendly greeting" --porcelain)
-```
 
-Before running anything, you can see the exact context Atelier will inject into Codex:
-
-```bash
 atelier work hello-world \
   --thread "$THREAD" \
   --as alice \
@@ -105,23 +109,9 @@ atelier work hello-world \
   "Create a tiny hello-world note"
 ```
 
-The dry-run is intentionally daemon-free. It records a dry-run job and prints the Codex invocation and injected context.
+The dry-run is intentionally daemon-free. It records a dry-run job and prints the Codex invocation and injected person/thread context.
 
-### 4. Start the daemon
-
-Ordinary `atelier work` is daemon-managed by default. If the daemon is not running, it fails instead of silently starting unmanaged local work.
-
-Run this in a separate terminal:
-
-```bash
-atelier daemon run --listen 127.0.0.1:8787
-```
-
-The daemon hosts the local API and supervises Codex workers.
-
-### 5. Run work from the CLI
-
-In your original terminal:
+### 6. Run work from the CLI
 
 ```bash
 atelier work hello-world \
@@ -130,7 +120,7 @@ atelier work hello-world \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-Atelier submits the job to the daemon. You can inspect it from the CLI:
+Atelier submits the job to the daemon. Inspect it from the CLI:
 
 ```bash
 atelier jobs list hello-world
@@ -138,19 +128,14 @@ atelier jobs show hello-world <job-id>
 atelier prompts inbox
 ```
 
-If Codex needs approval, the job becomes `waiting-for-prompt`. For example, while dogfooding this flow, Codex asked for file-change approval before writing `HELLO.md`.
+If Codex needs approval, the job becomes `waiting-for-prompt`. While dogfooding this flow, Codex asked for file-change approval before writing `HELLO.md`.
 
-### 6. Use the API for the same workflow
+### 7. Use the API for the same workflow
 
-Check that the daemon is healthy:
+Check the daemon:
 
 ```bash
 curl -s http://127.0.0.1:8787/health
-```
-
-List projects known to the daemon:
-
-```bash
 curl -s http://127.0.0.1:8787/projects
 ```
 
@@ -162,15 +147,11 @@ curl -s http://127.0.0.1:8787/work \
   -d "{\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
 ```
 
-List pending prompts:
+List and answer prompts:
 
 ```bash
 curl -s http://127.0.0.1:8787/prompts
-```
 
-Respond to a prompt:
-
-```bash
 curl -s http://127.0.0.1:8787/prompts/respond \
   -H 'Content-Type: application/json' \
   -d '{"project":"hello-world","prompt_id":"prompt-0","decision":"accept"}'
@@ -186,7 +167,7 @@ atelier sessions hello-world --thread "$THREAD"
 
 The session command shows the Codex session lineage attached to this Atelier thread.
 
-### 7. Create a project through the API
+### 8. Create a project through the API
 
 The daemon can also initialize and register projects:
 
@@ -221,9 +202,9 @@ This creates the project folder, writes the starter Atelier/Codex files, registe
    - Each person has separate global memory.
    - Shared projects remain unified because project knowledge lives in the project folder.
 
-6. **Raw Codex remains valid**
-   - `cd project && codex` should remain a valid way to work.
-   - Atelier may add identity, gateway routing, job orchestration, and context injection, but it must not hide essential project semantics outside the folder.
+6. **Raw Codex remains valid, but it is not the Atelier user flow**
+   - Atelier should not make project folders unusable without Atelier.
+   - The primary product path is daemon-managed Atelier work.
 
 7. **No hidden Codex config mutation for context injection**
    - Atelier should not rewrite a person's `~/.codex` files or project `.codex/config.toml` merely to inject runtime context.

@@ -6,17 +6,17 @@ This guide shows the current alpha workflow by walking through one small project
 
 Atelier has three operating modes:
 
-1. **Raw Codex** — `cd project && codex`. This is outside Atelier orchestration and should always remain valid.
-2. **Atelier setup and inspection** — initialization, registry, person memory, thread creation, dry-runs, job listing, prompt inspection, and session listing can run from the CLI without the daemon.
-3. **Atelier work** — ordinary `atelier work` is daemon-managed and requires `atelier daemon run`.
+1. **Atelier setup and inspection** — home initialization, person memory, project creation, thread creation, dry-runs, job listing, prompt inspection, and session listing can run from the CLI.
+2. **Atelier work** — ordinary `atelier work` is daemon-managed and requires `atelier daemon run`.
+3. **Raw Codex** — still possible in a project folder, but outside Atelier orchestration and not the primary Atelier user flow.
 
-The split is intentional. Atelier is an orchestrator. Managed work goes through the always-alive daemon so gateway messages, API calls, CLI submissions, prompt relay, recovery, and job state all share the same runtime path.
+The daemon-first split is intentional. Atelier is an orchestrator. Managed work goes through the always-alive daemon so gateway messages, API calls, CLI submissions, prompt relay, recovery, and job state all share the same runtime path.
 
 Key concepts:
 
 - **Home workspace:** global Atelier state. It stores person memory, project registry, gateway person bindings, and gateway audit logs.
-- **Project:** a durable working folder. Project-specific state belongs in the project folder under `.atelier/` and Codex-native files such as `AGENTS.md`, `.agents/skills`, and `.codex/config.toml`.
 - **Person:** a human identity. Person memory is global and describes the person, not projects.
+- **Project:** a durable working folder. Project-specific state belongs in the project folder under `.atelier/` and Codex-native files such as `AGENTS.md`, `.agents/skills`, and `.codex/config.toml`.
 - **Thread:** one Atelier workstream inside a project. Gateway threads and Codex session lineage bind to Atelier threads.
 - **Job:** one Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project.
 
@@ -46,18 +46,50 @@ cargo build --release
 export PATH="$PWD/target/release:$PATH"
 ```
 
-### Create home and project folders
+### Create home and person state
 
 ```bash
 atelier home init ~/atelier-home
-mkdir -p ~/hello-world
-atelier project init ~/hello-world --name hello-world
-atelier projects add hello-world ~/hello-world
+atelier people add alice
+atelier people memory set alice "Prefers short, practical examples."
 ```
 
-`atelier home init` creates the global home workspace and registers the `home` alias. `atelier project init` creates starter `AGENTS.md` and `.atelier/project.toml` files in the project.
+`atelier home init` creates the global home workspace and registers the `home` alias. Person memory is global and injected into Atelier-launched work for that person. Do not store project facts there; put project facts in project files.
 
-Now add normal project content:
+### Start the daemon
+
+Open another terminal and run:
+
+```bash
+atelier daemon run --listen 127.0.0.1:8787
+```
+
+Keep it running. The daemon is the long-lived orchestrator. It hosts the local API, supervises workers, handles prompt relay, and is the surface gateway adapters use.
+
+For adapter or reverse-proxy use, require bearer auth:
+
+```bash
+ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
+  --listen 127.0.0.1:8787 \
+  --auth-token-env ATELIER_GATEWAY_TOKEN
+```
+
+The daemon refuses non-loopback addresses unless explicitly allowed:
+
+```bash
+atelier daemon run --listen 0.0.0.0:8787 --allow-non-loopback
+```
+
+### Create the project
+
+```bash
+mkdir -p ~/hello-world
+atelier project init ~/hello-world --name hello-world
+```
+
+Project initialization creates the starter `AGENTS.md` and `.atelier/project.toml` files and registers the `hello-world` alias. You do not need a separate `atelier projects add` for a newly initialized project.
+
+Add normal project content:
 
 ```bash
 cat > ~/hello-world/README.md <<'EOF'
@@ -74,24 +106,6 @@ Keep outputs small and beginner friendly. Use files in this folder as source of 
 EOF
 ```
 
-You can still use raw Codex directly in the folder:
-
-```bash
-cd ~/hello-world
-codex
-```
-
-Raw Codex sees the project instructions and files. Atelier-managed Codex additionally receives person context, runs as a tracked job, exposes prompts through the daemon, and records session lineage.
-
-### Add a person
-
-```bash
-atelier people add alice
-atelier people memory set alice "Prefers short, practical examples."
-```
-
-Person memory is global and injected into Atelier-launched work for that person. Do not store project facts there; put project facts in project files.
-
 ### Create a thread and dry-run the first task
 
 ```bash
@@ -104,33 +118,9 @@ atelier work hello-world \
   "Create a tiny hello-world note"
 ```
 
-The dry-run does not require a daemon. It writes a dry-run job artifact and prints the Codex command plus explicit context injection, including the current person and thread.
-
-### Start the daemon
-
-Open another terminal and run:
-
-```bash
-atelier daemon run --listen 127.0.0.1:8787
-```
-
-For adapter or reverse-proxy use, require bearer auth:
-
-```bash
-ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier daemon run \
-  --listen 127.0.0.1:8787 \
-  --auth-token-env ATELIER_GATEWAY_TOKEN
-```
-
-The daemon refuses non-loopback addresses unless explicitly allowed:
-
-```bash
-atelier daemon run --listen 0.0.0.0:8787 --allow-non-loopback
-```
+The dry-run does not require the daemon. It writes a dry-run job artifact and prints the Codex command plus explicit context injection, including the current person and thread.
 
 ### Run the first real task from the CLI
-
-Back in the original terminal:
 
 ```bash
 atelier work hello-world \
@@ -199,7 +189,9 @@ curl -s http://127.0.0.1:8787/projects \
 
 That creates starter project files, registers the alias, and appends a gateway audit event.
 
-A running daemon reads the registry from disk on each request. Projects added with `atelier projects add` or `POST /projects` are visible without restarting the daemon.
+`atelier projects add <name> <path>` still exists for adopting an already-existing folder or repairing/updating a registry alias. It is not part of the normal new-project setup path.
+
+A running daemon reads the registry from disk on each request. Projects created by the CLI or API are visible without restarting the daemon.
 
 ### Start work through the API
 
@@ -307,6 +299,12 @@ atelier mcp add project hello-world example-server -- command arg1 arg2
 Atelier writes Codex-native capability files only when explicitly asked. It does not rewrite Codex home or project config merely to inject person context.
 
 ## Other useful commands
+
+Register or update an existing project folder alias:
+
+```bash
+atelier projects add existing-project /path/to/existing-project
+```
 
 List registered projects:
 

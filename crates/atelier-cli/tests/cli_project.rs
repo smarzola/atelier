@@ -15,18 +15,23 @@ fn cli_help_mentions_core_commands() {
 #[test]
 fn project_init_creates_project_scaffold() {
     let temp = tempfile::tempdir().expect("tempdir");
+    let atelier_home = temp.path().join("atelier-home");
     let project = temp.path().join("example-project");
 
     let mut cmd = Command::cargo_bin("atelier").expect("atelier binary exists");
-    cmd.args([
-        "project",
-        "init",
-        project.to_str().expect("utf8 path"),
-        "--name",
-        "example-project",
-    ])
-    .assert()
-    .success();
+    cmd.env("ATELIER_HOME", &atelier_home)
+        .args([
+            "project",
+            "init",
+            project.to_str().expect("utf8 path"),
+            "--name",
+            "example-project",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Registered project example-project",
+        ));
 
     assert!(project.join("AGENTS.md").is_file());
     assert!(project.join(".atelier/project.toml").is_file());
@@ -39,4 +44,9 @@ fn project_init_creates_project_scaffold() {
     let project_toml =
         std::fs::read_to_string(project.join(".atelier/project.toml")).expect("read project.toml");
     assert!(project_toml.contains("name = \"example-project\""));
+
+    let registry =
+        std::fs::read_to_string(atelier_home.join("registry.toml")).expect("read registry");
+    assert!(registry.contains("example-project"));
+    assert!(registry.contains(project.to_str().expect("utf8 path")));
 }
