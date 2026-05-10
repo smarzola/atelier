@@ -112,6 +112,10 @@ atelier home init <home-project-path>
 atelier projects add <name> <project-path>
 atelier status
 atelier gateway serve --listen 127.0.0.1:8787
+curl -s http://127.0.0.1:8787/projects
+curl -s http://127.0.0.1:8787/projects \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"api-project","path":"/tmp/api-project"}'
 ATELIER_GATEWAY_TOKEN='replace-with-secret' atelier gateway serve \
   --listen 127.0.0.1:8787 \
   --auth-token-env ATELIER_GATEWAY_TOKEN \

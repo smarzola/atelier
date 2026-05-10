@@ -955,6 +955,12 @@ struct GatewayPromptResponseRequest {
     json: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct GatewayProjectCreateRequest {
+    name: String,
+    path: PathBuf,
+}
+
 #[derive(Debug, Clone)]
 struct GatewayAuth {
     bearer_token: Option<String>,
@@ -1050,6 +1056,19 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         ("GET", "/status") => gateway_status_json()?,
         ("GET", "/jobs") => gateway_jobs_json()?,
         ("GET", "/prompts") => gateway_prompts_json()?,
+        ("GET", "/projects") => gateway_projects_json()?,
+        ("POST", "/projects") => {
+            let request: GatewayProjectCreateRequest = serde_json::from_str(&body)?;
+            atelier_core::project::init_project(&request.path, &request.name)?;
+            let project = atelier_core::registry::add_project(&request.name, &request.path)?;
+            append_gateway_audit_event(serde_json::json!({
+                "action": "project_created",
+                "project": project.name,
+                "project_path": project.path,
+                "result": "created"
+            }))?;
+            serde_json::json!({"status":"created","project":{"name":project.name,"path":project.path}})
+        }
         ("POST", "/prompts/respond") => {
             let request: GatewayPromptResponseRequest = serde_json::from_str(&body)?;
             let project_path = resolve_project_arg(Path::new(&request.project))?;
@@ -1357,6 +1376,14 @@ fn gateway_status_json() -> Result<serde_json::Value> {
         "worker_lost_jobs": jobs.iter().filter(|status| status.status == "worker-lost").count(),
         "idle_timeout_jobs": jobs.iter().filter(|status| status.status == "idle-timeout").count(),
     }))
+}
+
+fn gateway_projects_json() -> Result<serde_json::Value> {
+    let projects: Vec<_> = atelier_core::registry::list_projects()?
+        .into_iter()
+        .map(|project| serde_json::json!({"name": project.name, "path": project.path}))
+        .collect();
+    Ok(serde_json::json!({"projects": projects}))
 }
 
 fn gateway_jobs_json() -> Result<serde_json::Value> {

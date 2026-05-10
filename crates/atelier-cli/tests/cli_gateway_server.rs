@@ -49,6 +49,89 @@ fn gateway_health_status_jobs_prompts_and_respond_endpoints_work() {
 }
 
 #[test]
+fn gateway_projects_endpoint_reflects_cli_added_projects_without_restart() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+
+    let port = free_port();
+    let mut server = spawn_gateway(&temp, port);
+    wait_for_health(port);
+
+    let initial = get_json(port, "/projects");
+    assert_eq!(initial["projects"].as_array().expect("projects").len(), 1);
+
+    let second_project = temp.path().join("second-project");
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "project",
+            "init",
+            second_project.to_str().expect("utf8 path"),
+            "--name",
+            "second-project",
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .args([
+            "projects",
+            "add",
+            "second-project",
+            second_project.to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success();
+
+    let refreshed = get_json(port, "/projects");
+    let names: Vec<_> = refreshed["projects"]
+        .as_array()
+        .expect("projects")
+        .iter()
+        .map(|project| project["name"].as_str().expect("name"))
+        .collect();
+    assert!(names.contains(&"example-project"));
+    assert!(names.contains(&"second-project"));
+
+    let _ = server.kill();
+}
+
+#[test]
+fn gateway_projects_create_endpoint_initializes_and_registers_project() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("api-project");
+
+    let port = free_port();
+    let mut server = spawn_gateway(&temp, port);
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/projects",
+        &format!(
+            r#"{{"name":"api-project","path":"{}"}}"#,
+            project.to_str().expect("utf8 path")
+        ),
+    );
+    assert_eq!(response["status"], "created");
+    assert_eq!(response["project"]["name"], "api-project");
+    assert!(project.join(".atelier/project.toml").exists());
+
+    let projects = get_json(port, "/projects");
+    assert_eq!(projects["projects"][0]["name"], "api-project");
+
+    let audit_event = latest_audit_event(&temp, "project_created");
+    assert_eq!(audit_event["action"], "project_created");
+    assert_eq!(audit_event["project"], "api-project");
+    assert_eq!(audit_event["result"], "created");
+
+    let _ = server.kill();
+}
+
+#[test]
 fn gateway_message_event_starts_managed_work() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
