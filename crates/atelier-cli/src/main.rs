@@ -245,6 +245,8 @@ enum GatewayCommand {
 
 #[derive(Debug, Subcommand)]
 enum PromptsCommand {
+    /// List pending Codex prompts across registered projects.
+    Inbox,
     /// List pending and resolved Codex prompts in a project.
     List {
         /// Project folder path.
@@ -477,6 +479,9 @@ fn main() -> Result<()> {
             }
         },
         Command::Prompts { command } => match command {
+            PromptsCommand::Inbox => {
+                print_prompt_inbox()?;
+            }
             PromptsCommand::List { project_path } => {
                 let project_path = resolve_project_arg(&project_path)?;
                 for (job_id, prompt) in list_prompts(&project_path)? {
@@ -730,6 +735,20 @@ fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn print_prompt_inbox() -> Result<()> {
+    for project in atelier_core::registry::list_projects()? {
+        for (job_id, prompt) in list_prompts(&project.path)? {
+            if prompt.status == atelier_core::codex_app_server::PendingPromptStatus::Pending {
+                println!(
+                    "{}\t{}\t{}\t{}",
+                    project.name, job_id, prompt.id, prompt.summary
+                );
+            }
+        }
+    }
     Ok(())
 }
 
