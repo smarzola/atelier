@@ -4,6 +4,7 @@ use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 #[test]
@@ -78,6 +79,159 @@ fn daemon_run_supervises_workers_by_default() {
     let _ = daemon.kill();
 }
 
+#[test]
+fn daemon_run_sets_telegram_webhook_and_enforces_update_secret() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let telegram_api = FakeTelegramApi::start(1);
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port)
+        .env("ATELIER_TELEGRAM_BOT_TOKEN", "example-token")
+        .env("ATELIER_TELEGRAM_API_BASE", telegram_api.base_url())
+        .env(
+            "ATELIER_TELEGRAM_WEBHOOK_URL",
+            "https://example.invalid/atelier/telegram",
+        )
+        .env("ATELIER_TELEGRAM_WEBHOOK_SECRET", "example-secret")
+        .spawn()
+        .expect("spawn daemon");
+    wait_for_health(port);
+
+    let setup = post_json(port, "/adapters/telegram/webhook/setup", "{}");
+    assert_eq!(setup["status"], "configured");
+    assert_eq!(setup["result"]["ok"], true);
+
+    let request = telegram_api.next_request();
+    assert_eq!(request.path, "/botexample-token/setWebhook");
+    let body: Value = serde_json::from_str(&request.body).expect("webhook body");
+    assert_eq!(body["url"], "https://example.invalid/atelier/telegram");
+    assert_eq!(body["secret_token"], "example-secret");
+
+    let rejected = request_status_and_json(
+        port,
+        "POST",
+        "/adapters/telegram/update",
+        r#"{"update_id":1}"#,
+        &[("X-Telegram-Bot-Api-Secret-Token", "wrong-secret")],
+    );
+    assert_eq!(rejected.0, 401);
+    assert_eq!(rejected.1["error"], "unauthorized");
+
+    let accepted = request_status_and_json(
+        port,
+        "POST",
+        "/adapters/telegram/update",
+        r#"{"update_id":1}"#,
+        &[("X-Telegram-Bot-Api-Secret-Token", "example-secret")],
+    );
+    assert_ne!(accepted.0, 401);
+
+    let _ = daemon.kill();
+}
+
+#[test]
+fn daemon_run_sends_telegram_messages_through_bot_api() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let telegram_api = FakeTelegramApi::start(1);
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port)
+        .env("ATELIER_TELEGRAM_BOT_TOKEN", "example-token")
+        .env("ATELIER_TELEGRAM_API_BASE", telegram_api.base_url())
+        .spawn()
+        .expect("spawn daemon");
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/adapters/telegram/send-message",
+        r#"{"chat_id":"1000","message_thread_id":"77","text":"Example notification"}"#,
+    );
+    assert_eq!(response["status"], "sent");
+    assert_eq!(response["result"]["ok"], true);
+
+    let request = telegram_api.next_request();
+    assert_eq!(request.path, "/botexample-token/sendMessage");
+    let body: Value = serde_json::from_str(&request.body).expect("sendMessage body");
+    assert_eq!(body["chat_id"], "1000");
+    assert_eq!(body["message_thread_id"], "77");
+    assert_eq!(body["text"], "Example notification");
+
+    let _ = daemon.kill();
+}
+
+#[test]
+fn daemon_run_acknowledges_telegram_update_job_start() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
+        .args([
+            "gateway",
+            "bind",
+            project.to_str().expect("utf8 path"),
+            "--thread",
+            &thread_id,
+            "--gateway",
+            "telegram",
+            "--external-thread",
+            "chat:1000:topic:77",
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("atelier")
+        .expect("atelier")
+        .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
+        .args([
+            "gateway",
+            "bind-person",
+            "--gateway",
+            "telegram",
+            "--external-user",
+            "2000",
+            "--person",
+            "alice",
+        ])
+        .assert()
+        .success();
+    let fake_bin = temp.path().join("fake-bin");
+    std::fs::create_dir(&fake_bin).expect("fake bin");
+    write_fake_codex(&fake_bin.join("codex"));
+    let telegram_api = FakeTelegramApi::start(1);
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port)
+        .env("PATH", prepend_to_path(&fake_bin))
+        .env("ATELIER_TELEGRAM_BOT_TOKEN", "example-token")
+        .env("ATELIER_TELEGRAM_API_BASE", telegram_api.base_url())
+        .spawn()
+        .expect("spawn daemon");
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/adapters/telegram/update",
+        r#"{"update_id":1,"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000,"type":"supergroup"},"from":{"id":2000,"is_bot":false,"first_name":"Example"},"text":"Run Telegram task"}}"#,
+    );
+    assert_eq!(response["status"], "started");
+    let job_id = response["job_id"].as_str().expect("job id");
+    wait_for_job_success(&project, job_id);
+
+    let request = telegram_api.next_request();
+    assert_eq!(request.path, "/botexample-token/sendMessage");
+    let body: Value = serde_json::from_str(&request.body).expect("ack body");
+    assert_eq!(body["chat_id"], "1000");
+    assert_eq!(body["message_thread_id"], "77");
+    assert!(
+        body["text"].as_str().expect("ack text").contains(job_id),
+        "ack should include job id: {body}"
+    );
+
+    let _ = daemon.kill();
+}
+
 fn wait_for_job_success(project: &std::path::Path, job_id: &str) {
     wait_for_job_status(project, job_id, "succeeded")
 }
@@ -97,6 +251,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "project",
             "init",
@@ -109,6 +264,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "projects",
             "add",
@@ -123,6 +279,7 @@ fn create_thread(temp: &tempfile::TempDir, project: &std::path::Path) -> String 
     let output = Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "thread",
             "new",
@@ -191,6 +348,7 @@ fn daemon_command(temp: &tempfile::TempDir, port: u16) -> Command {
     let mut command = Command::cargo_bin("atelier").expect("atelier");
     command
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .arg("daemon")
         .arg("run")
         .arg("--listen")
@@ -225,16 +383,36 @@ fn post_json(port: u16, path: &str, body: &str) -> Value {
 }
 
 fn request_json(port: u16, method: &str, path: &str, body: &str) -> Value {
+    request_status_and_json(port, method, path, body, &[]).1
+}
+
+fn request_status_and_json(
+    port: u16,
+    method: &str,
+    path: &str,
+    body: &str,
+    headers: &[(&str, &str)],
+) -> (u16, Value) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect daemon");
+    let extra_headers = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n{extra_headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     stream.write_all(request.as_bytes()).expect("write request");
     let mut response = String::new();
     stream.read_to_string(&mut response).expect("read response");
+    let status = response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|status| status.parse::<u16>().ok())
+        .expect("status code");
     let body = response.split("\r\n\r\n").nth(1).expect("response body");
-    serde_json::from_str(body).expect("json body")
+    (status, serde_json::from_str(body).expect("json body"))
 }
 
 fn write_fake_codex(path: &std::path::Path) {
@@ -272,4 +450,98 @@ fn prepend_to_path(dir: &std::path::Path) -> std::ffi::OsString {
             .chain(std::env::split_paths(&original_path).map(|path| path.into_os_string())),
     )
     .expect("join PATH")
+}
+
+struct FakeTelegramApi {
+    port: u16,
+    receiver: mpsc::Receiver<CapturedRequest>,
+}
+
+struct CapturedRequest {
+    path: String,
+    body: String,
+}
+
+impl FakeTelegramApi {
+    fn start(expected_requests: usize) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fake telegram api");
+        let port = listener.local_addr().expect("local addr").port();
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            for _ in 0..expected_requests {
+                let (mut stream, _) = listener.accept().expect("accept fake telegram request");
+                let request = read_raw_http_request(&mut stream);
+                sender.send(request).expect("send captured request");
+                let body = r#"{"ok":true,"result":{"message_id":123}}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                stream
+                    .write_all(response.as_bytes())
+                    .expect("write fake response");
+            }
+        });
+        Self { port, receiver }
+    }
+
+    fn base_url(&self) -> String {
+        format!("http://127.0.0.1:{}", self.port)
+    }
+
+    fn next_request(&self) -> CapturedRequest {
+        self.receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("captured telegram request")
+    }
+}
+
+fn read_raw_http_request(stream: &mut TcpStream) -> CapturedRequest {
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    let mut buffer = Vec::new();
+    let mut temp = [0_u8; 1024];
+    loop {
+        let bytes = stream.read(&mut temp).expect("read fake request");
+        if bytes == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..bytes]);
+        if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let header_end = buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|position| position + 4)
+        .expect("header end");
+    let headers = String::from_utf8_lossy(&buffer[..header_end]);
+    let request_line = headers.lines().next().expect("request line");
+    let path = request_line
+        .split_whitespace()
+        .nth(1)
+        .expect("request path")
+        .to_string();
+    let content_length = headers
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+    while buffer.len() < header_end + content_length {
+        let bytes = stream.read(&mut temp).expect("read fake body");
+        if bytes == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&temp[..bytes]);
+    }
+    CapturedRequest {
+        path,
+        body: String::from_utf8_lossy(&buffer[header_end..header_end + content_length]).to_string(),
+    }
 }

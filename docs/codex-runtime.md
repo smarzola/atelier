@@ -124,9 +124,20 @@ atelier gateway bind <project-or-alias> --thread <thread> --gateway example-gate
 atelier gateway bind <project-or-alias> --thread <thread> --gateway telegram --external-thread chat:1000:topic:77
 atelier gateway bind-person --gateway example-gateway --external-user external-user --person alice
 atelier gateway bind-person --gateway telegram --external-user 2000 --person alice
+ATELIER_TELEGRAM_BOT_TOKEN='replace-with-bot-token' \
+ATELIER_TELEGRAM_WEBHOOK_URL='https://example.invalid/atelier/telegram' \
+ATELIER_TELEGRAM_WEBHOOK_SECRET='replace-with-secret-token' \
+  atelier daemon run --listen 127.0.0.1:8787
+curl -s http://127.0.0.1:8787/adapters/telegram/webhook/setup \
+  -H 'Content-Type: application/json' \
+  -d '{}'
 curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -H 'Content-Type: application/json' \
+  -H 'X-Telegram-Bot-Api-Secret-Token: replace-with-secret-token' \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
+curl -s http://127.0.0.1:8787/adapters/telegram/send-message \
+  -H 'Content-Type: application/json' \
+  -d '{"chat_id":"1000","message_thread_id":"77","text":"Example notification"}'
 atelier work <project-or-alias> --thread <thread> --as <person> "task"
 atelier jobs list <project-or-alias>
 atelier jobs show <project-or-alias> <job-id>

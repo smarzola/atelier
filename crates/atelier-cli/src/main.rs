@@ -1040,6 +1040,29 @@ fn default_idle_timeout_seconds() -> u64 {
 #[derive(Debug, Clone)]
 struct GatewayAuth {
     bearer_token: Option<String>,
+    telegram: TelegramConfig,
+}
+
+#[derive(Debug, Clone)]
+struct TelegramConfig {
+    bot_token: Option<String>,
+    api_base: String,
+    webhook_url: Option<String>,
+    webhook_secret: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TelegramSendMessageRequest {
+    chat_id: serde_json::Value,
+    text: String,
+    message_thread_id: Option<serde_json::Value>,
+    reply_to_message_id: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+struct TelegramUpdateMetadata {
+    chat_id: String,
+    message_thread_id: Option<String>,
 }
 
 fn serve_gateway(
@@ -1058,6 +1081,7 @@ fn serve_gateway(
             ),
             None => None,
         },
+        telegram: load_telegram_config(),
     };
     let listener = TcpListener::bind(listen).with_context(|| format!("bind gateway {listen}"))?;
     let supervisor_stop = if supervise_workers {
@@ -1124,6 +1148,10 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         write_json_response(stream, 401, serde_json::json!({"error":"unauthorized"}))?;
         return Ok(());
     }
+    if !telegram_update_request_is_authorized(&request, &auth.telegram) {
+        write_json_response(stream, 401, serde_json::json!({"error":"unauthorized"}))?;
+        return Ok(());
+    }
     let method = request.method;
     let path = request.path;
     let body = request.body;
@@ -1174,8 +1202,18 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
             handle_gateway_message_event(event)?
         }
         ("POST", "/adapters/telegram/update") => {
+            let metadata = telegram_update_metadata(&body)?;
             let event = telegram_update_to_gateway_event(&body)?;
-            handle_gateway_message_event(event)?
+            let response = handle_gateway_message_event(event)?;
+            if let Some(job_id) = response.get("job_id").and_then(serde_json::Value::as_str) {
+                let _ = telegram_acknowledge_job_start(&auth.telegram, &metadata, job_id);
+            }
+            response
+        }
+        ("POST", "/adapters/telegram/webhook/setup") => telegram_set_webhook(&auth.telegram)?,
+        ("POST", "/adapters/telegram/send-message") => {
+            let request: TelegramSendMessageRequest = serde_json::from_str(&body)?;
+            telegram_send_message(&auth.telegram, request)?
         }
         _ => {
             write_json_response(stream, 404, serde_json::json!({"error":"not found"}))?;
@@ -1183,6 +1221,155 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         }
     };
     write_json_response(stream, 200, response)
+}
+
+fn load_telegram_config() -> TelegramConfig {
+    TelegramConfig {
+        bot_token: std::env::var("ATELIER_TELEGRAM_BOT_TOKEN").ok(),
+        api_base: std::env::var("ATELIER_TELEGRAM_API_BASE")
+            .unwrap_or_else(|_| "https://api.telegram.org".to_string()),
+        webhook_url: std::env::var("ATELIER_TELEGRAM_WEBHOOK_URL").ok(),
+        webhook_secret: std::env::var("ATELIER_TELEGRAM_WEBHOOK_SECRET").ok(),
+    }
+}
+
+fn telegram_update_request_is_authorized(request: &HttpRequest, config: &TelegramConfig) -> bool {
+    if request.path != "/adapters/telegram/update" {
+        return true;
+    }
+    let Some(expected_secret) = &config.webhook_secret else {
+        return true;
+    };
+    request
+        .headers
+        .iter()
+        .find(|(name, _value)| name.eq_ignore_ascii_case("x-telegram-bot-api-secret-token"))
+        .map(|(_name, value)| value == expected_secret)
+        .unwrap_or(false)
+}
+
+fn telegram_set_webhook(config: &TelegramConfig) -> Result<serde_json::Value> {
+    let url = config
+        .webhook_url
+        .as_deref()
+        .context("ATELIER_TELEGRAM_WEBHOOK_URL is required to set Telegram webhook")?;
+    let mut body = serde_json::json!({"url": url});
+    if let Some(secret) = &config.webhook_secret {
+        body["secret_token"] = serde_json::json!(secret);
+    }
+    let result = telegram_bot_api_json(config, "setWebhook", body)?;
+    append_gateway_audit_event(serde_json::json!({
+        "action": "telegram_webhook_setup",
+        "result": "configured"
+    }))?;
+    Ok(serde_json::json!({"status":"configured","result":result}))
+}
+
+fn telegram_send_message(
+    config: &TelegramConfig,
+    request: TelegramSendMessageRequest,
+) -> Result<serde_json::Value> {
+    let result = telegram_send_message_body(
+        config,
+        request.chat_id,
+        request.message_thread_id,
+        request.reply_to_message_id,
+        request.text,
+    )?;
+    append_gateway_audit_event(serde_json::json!({
+        "action": "telegram_send_message",
+        "result": "sent"
+    }))?;
+    Ok(serde_json::json!({"status":"sent","result":result}))
+}
+
+fn telegram_acknowledge_job_start(
+    config: &TelegramConfig,
+    metadata: &TelegramUpdateMetadata,
+    job_id: &str,
+) -> Result<()> {
+    telegram_send_message_body(
+        config,
+        serde_json::json!(metadata.chat_id),
+        metadata
+            .message_thread_id
+            .as_ref()
+            .map(|thread_id| serde_json::json!(thread_id)),
+        None,
+        format!("Atelier started job {job_id}."),
+    )?;
+    append_gateway_audit_event(serde_json::json!({
+        "action": "telegram_job_acknowledgement",
+        "job_id": job_id,
+        "result": "sent"
+    }))?;
+    Ok(())
+}
+
+fn telegram_send_message_body(
+    config: &TelegramConfig,
+    chat_id: serde_json::Value,
+    message_thread_id: Option<serde_json::Value>,
+    reply_to_message_id: Option<serde_json::Value>,
+    text: String,
+) -> Result<serde_json::Value> {
+    let mut body = serde_json::json!({
+        "chat_id": chat_id,
+        "text": text,
+    });
+    if let Some(message_thread_id) = message_thread_id {
+        body["message_thread_id"] = message_thread_id;
+    }
+    if let Some(reply_to_message_id) = reply_to_message_id {
+        body["reply_to_message_id"] = reply_to_message_id;
+    }
+    telegram_bot_api_json(config, "sendMessage", body)
+}
+
+fn telegram_bot_api_json(
+    config: &TelegramConfig,
+    method: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let token = config
+        .bot_token
+        .as_deref()
+        .context("ATELIER_TELEGRAM_BOT_TOKEN is required for Telegram Bot API calls")?;
+    let url = telegram_bot_api_url(&config.api_base, token, method);
+    let result: serde_json::Value = reqwest::blocking::Client::new()
+        .post(&url)
+        .json(&body)
+        .send()
+        .with_context(|| format!("send Telegram Bot API request to {url}"))?
+        .error_for_status()
+        .with_context(|| format!("Telegram Bot API returned an HTTP error for {method}"))?
+        .json()
+        .context("parse Telegram Bot API response")?;
+    if result.get("ok").and_then(serde_json::Value::as_bool) == Some(false) {
+        let description = result
+            .get("description")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Telegram Bot API returned ok=false");
+        anyhow::bail!("{description}");
+    }
+    Ok(result)
+}
+
+fn telegram_bot_api_url(base_url: &str, token: &str, method: &str) -> String {
+    format!("{}/bot{}/{}", base_url.trim_end_matches('/'), token, method)
+}
+
+#[cfg(test)]
+mod telegram_tests {
+    use super::telegram_bot_api_url;
+
+    #[test]
+    fn telegram_bot_api_url_defaults_to_https_host_shape() {
+        assert_eq!(
+            telegram_bot_api_url("https://api.telegram.org", "example-token", "sendMessage"),
+            "https://api.telegram.org/botexample-token/sendMessage"
+        );
+    }
 }
 
 fn default_daemon_url() -> String {
@@ -1360,26 +1547,18 @@ fn telegram_update_to_gateway_event(
     body: &str,
 ) -> Result<atelier_core::gateway::GatewayMessageEvent> {
     let update: serde_json::Value = serde_json::from_str(body).context("parse Telegram update")?;
-    let message = update
-        .get("message")
-        .or_else(|| update.get("edited_message"))
-        .context("Telegram update missing message")?;
+    let message = telegram_update_message(&update)?;
     let text = message
         .get("text")
         .or_else(|| message.get("caption"))
         .and_then(serde_json::Value::as_str)
         .context("Telegram message update missing text")?;
-    let chat_id = message
-        .get("chat")
-        .and_then(|chat| chat.get("id"))
-        .and_then(json_id_as_string)
-        .context("Telegram message update missing chat id")?;
-    let external_thread =
-        if let Some(topic_id) = message.get("message_thread_id").and_then(json_id_as_string) {
-            format!("chat:{chat_id}:topic:{topic_id}")
-        } else {
-            format!("chat:{chat_id}")
-        };
+    let metadata = telegram_message_metadata(message)?;
+    let external_thread = if let Some(topic_id) = &metadata.message_thread_id {
+        format!("chat:{}:topic:{}", metadata.chat_id, topic_id)
+    } else {
+        format!("chat:{}", metadata.chat_id)
+    };
     let external_user = message
         .get("from")
         .and_then(|from| from.get("id"))
@@ -1393,6 +1572,31 @@ fn telegram_update_to_gateway_event(
         thread: None,
         person: None,
         text: text.to_string(),
+    })
+}
+
+fn telegram_update_metadata(body: &str) -> Result<TelegramUpdateMetadata> {
+    let update: serde_json::Value = serde_json::from_str(body).context("parse Telegram update")?;
+    telegram_message_metadata(telegram_update_message(&update)?)
+}
+
+fn telegram_update_message(update: &serde_json::Value) -> Result<&serde_json::Value> {
+    update
+        .get("message")
+        .or_else(|| update.get("edited_message"))
+        .context("Telegram update missing message")
+}
+
+fn telegram_message_metadata(message: &serde_json::Value) -> Result<TelegramUpdateMetadata> {
+    let chat_id = message
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .and_then(json_id_as_string)
+        .context("Telegram message update missing chat id")?;
+    let message_thread_id = message.get("message_thread_id").and_then(json_id_as_string);
+    Ok(TelegramUpdateMetadata {
+        chat_id,
+        message_thread_id,
     })
 }
 
@@ -1445,6 +1649,7 @@ struct HttpRequest {
     method: String,
     path: String,
     authorization: Option<String>,
+    headers: Vec<(String, String)>,
     body: String,
 }
 
@@ -1504,6 +1709,14 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest> {
             None
         }
     });
+    let parsed_headers = headers
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            Some((name.trim().to_string(), value.trim().to_string()))
+        })
+        .collect();
     while buffer.len() < header_end + content_length {
         let bytes = stream.read(&mut temp).context("read http body")?;
         if bytes == 0 {
@@ -1517,6 +1730,7 @@ fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest> {
         method,
         path,
         authorization,
+        headers: parsed_headers,
         body,
     })
 }

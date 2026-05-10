@@ -256,6 +256,27 @@ curl -s http://127.0.0.1:8787/events/message \
 
 ## Telegram adapter
 
+Configure the daemon with a bot token, public webhook URL, and Telegram secret token:
+
+```bash
+export ATELIER_TELEGRAM_BOT_TOKEN='replace-with-bot-token'
+export ATELIER_TELEGRAM_WEBHOOK_URL='https://example.invalid/atelier/telegram'
+export ATELIER_TELEGRAM_WEBHOOK_SECRET='replace-with-secret-token'
+atelier daemon run --listen 127.0.0.1:8787
+```
+
+By default, Atelier calls the real Telegram Bot API at `https://api.telegram.org`. Tests or local proxies can override that with `ATELIER_TELEGRAM_API_BASE`.
+
+Register the webhook with Telegram:
+
+```bash
+curl -s http://127.0.0.1:8787/adapters/telegram/webhook/setup \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+Telegram update requests to `/adapters/telegram/update` must include `X-Telegram-Bot-Api-Secret-Token` matching `ATELIER_TELEGRAM_WEBHOOK_SECRET` when that variable is set.
+
 Bind a Telegram topic-style thread and user:
 
 ```bash
@@ -275,10 +296,19 @@ Send a Telegram update payload:
 ```bash
 curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -H 'Content-Type: application/json' \
+  -H "X-Telegram-Bot-Api-Secret-Token: $ATELIER_TELEGRAM_WEBHOOK_SECRET" \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 ```
 
-Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`.
+Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id.
+
+Send a Telegram message through the Bot API:
+
+```bash
+curl -s http://127.0.0.1:8787/adapters/telegram/send-message \
+  -H 'Content-Type: application/json' \
+  -d '{"chat_id":"1000","message_thread_id":"77","text":"Example notification"}'
+```
 
 ## Codex-native skills and MCP
 

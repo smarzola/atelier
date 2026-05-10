@@ -65,6 +65,7 @@ fn gateway_projects_endpoint_reflects_cli_added_projects_without_restart() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "project",
             "init",
@@ -77,6 +78,7 @@ fn gateway_projects_endpoint_reflects_cli_added_projects_without_restart() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "projects",
             "add",
@@ -168,6 +170,7 @@ fn gateway_message_event_resolves_bound_thread_and_person() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "gateway",
             "bind",
@@ -184,6 +187,7 @@ fn gateway_message_event_resolves_bound_thread_and_person() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "gateway",
             "bind-person",
@@ -228,6 +232,7 @@ fn telegram_adapter_message_update_starts_work_through_generic_gateway() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "gateway",
             "bind",
@@ -244,6 +249,7 @@ fn telegram_adapter_message_update_starts_work_through_generic_gateway() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "gateway",
             "bind-person",
@@ -294,6 +300,7 @@ fn gateway_rejects_non_loopback_listen_without_explicit_opt_in() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args(["gateway", "serve", "--listen", "0.0.0.0:0"])
         .assert()
         .failure()
@@ -345,6 +352,7 @@ fn gateway_fails_fast_when_auth_token_env_is_missing() {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .env_remove("ATELIER_MISSING_GATEWAY_TOKEN")
         .args([
             "gateway",
@@ -399,6 +407,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "project",
             "init",
@@ -411,6 +420,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "projects",
             "add",
@@ -425,6 +435,7 @@ fn create_thread(temp: &tempfile::TempDir, project: &std::path::Path) -> String 
     let output = Command::cargo_bin("atelier")
         .expect("atelier")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "thread",
             "new",
@@ -575,6 +586,7 @@ fn gateway_command(temp: &tempfile::TempDir, port: u16) -> Command {
     let mut command = Command::cargo_bin("atelier").expect("atelier");
     command
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .arg("gateway")
         .arg("serve")
         .arg("--listen")

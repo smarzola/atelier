@@ -17,7 +17,8 @@ The alpha currently supports:
 - dry-runs without a daemon;
 - threads, jobs, prompts, recovery, and session lineage;
 - a loopback-first daemon HTTP API;
-- generic gateway events and a Telegram webhook adapter.
+- generic gateway events;
+- a Telegram daemon gateway with webhook setup, secret validation, inbound update routing, outbound Bot API `sendMessage`, and job-start acknowledgements.
 
 Release archives are built only for:
 
