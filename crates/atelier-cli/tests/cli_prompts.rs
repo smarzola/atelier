@@ -134,6 +134,36 @@ fn thread_send_approval_answers_single_pending_prompt() {
     let response =
         std::fs::read_to_string(job_dir.join("responses/prompt-9.json")).expect("read response");
     assert!(response.contains("\"decision\": \"accept\""));
+
+    let items = atelier_core::thread_items::read_thread_items(&project, &thread_id, 0)
+        .expect("read thread items");
+    assert!(
+        items
+            .iter()
+            .any(|item| item.item_type == "atelier.approval_request"
+                && item.role == "assistant"
+                && item.content[0].content_type == "output_text"
+                && item
+                    .metadata
+                    .get("prompt_id")
+                    .and_then(|value| value.as_str())
+                    == Some("prompt-9")),
+        "pending prompt should be visible as an approval request item: {items:?}"
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| item.item_type == "atelier.approval_response"
+                && item.role == "user"
+                && item.content[0].content_type == "input_text"
+                && item.content[0].text == "approve"
+                && item
+                    .metadata
+                    .get("prompt_id")
+                    .and_then(|value| value.as_str())
+                    == Some("prompt-9")),
+        "thread reply should be recorded as an approval response item: {items:?}"
+    );
 }
 
 #[test]

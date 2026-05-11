@@ -17,9 +17,10 @@ Key concepts:
 - **Home workspace:** global Atelier state. It stores person memory, project registry, gateway person bindings, and gateway audit logs.
 - **Person:** a human identity. Person memory is global and describes the person, not projects.
 - **Project:** a durable working folder. Project-specific state belongs in the project folder under `.atelier/` and Codex-native files such as `AGENTS.md`, `.agents/skills`, and `.codex/config.toml`.
-- **Thread:** one Atelier workstream inside a project. Gateway threads, Codex session lineage, and durable output events bind to Atelier threads.
-- **Job:** one Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project.
-- **Thread event:** an append-only event in `.atelier/threads/<thread-id>/events.jsonl`. CLI, API, and gateways should read this shared event stream instead of inventing separate delivery state.
+- **Thread:** one Atelier workstream inside a project. Gateway threads, Codex session lineage, and durable conversation items bind to Atelier threads.
+- **Thread item:** the primary user-facing message stream in `.atelier/threads/<thread-id>/items.jsonl`. CLI, API, and gateways send and receive these OpenAI-style conversation items.
+- **Job:** one internal Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project and are debug/audit artifacts, not the normal interaction surface.
+- **Thread event:** an internal/debug event stream in `.atelier/threads/<thread-id>/events.jsonl` for lifecycle and recovery diagnostics.
 
 ## Walkthrough: create a hello-world project
 
@@ -132,14 +133,19 @@ atelier thread send hello-world \
 
 `atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand for starting managed work, but the thread-native command is preferred for ongoing workstreams. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer.
 
-The shared thread event stream is intentionally bounded. Atelier records lifecycle events, prompt notifications, queued-message notifications, coalesced `agent_message_snapshot` progress, and `final_result`; it does not send token-by-token gateway spam.
+The shared thread item stream is intentionally bounded. Atelier records user messages, assistant results, approval requests, and approval replies as conversation items; it does not send token-by-token gateway spam.
 
-Inspect the job and follow the shared thread event stream:
+Follow the conversation item stream:
+
+```bash
+atelier thread follow hello-world --thread "$THREAD" --after 0
+```
+
+Jobs are still inspectable as internal/debug artifacts when needed:
 
 ```bash
 atelier jobs list hello-world
 atelier jobs show hello-world <job-id>
-atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
 If Codex asks for approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval from the thread itself:
@@ -213,17 +219,23 @@ curl -s http://127.0.0.1:8787/work \
   -d "{\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
 ```
 
-### Thread events, jobs, and prompts through the API
+### Thread items, jobs, and prompts through the API
 
-Read the shared thread event stream with a stateless cursor:
+Read the product-facing thread item stream with a stateless cursor:
+
+```bash
+curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world&after=0"
+```
+
+The response is OpenAI-style: `object = "list"`, `data[]`, `first_id`, `last_id`, and `has_more`. Use each item's numeric `sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher. Durable subscribers persist delivery cursors under `.atelier/threads/<thread-id>/delivery-cursors/` so daemon restarts do not duplicate delivered items.
+
+The raw event endpoint remains available for internal/debug inspection:
 
 ```bash
 curl -s "http://127.0.0.1:8787/events?project=hello-world&thread=$THREAD&after=0"
 ```
 
-The response contains `events` and `last_sequence`. Use `last_sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher. Durable subscribers can persist their own delivery cursor under `.atelier/threads/<thread-id>/delivery-cursors/` so daemon restarts do not duplicate delivered events.
-
-Inspect current jobs and prompts:
+Inspect current jobs and prompts when debugging:
 
 ```bash
 curl -s http://127.0.0.1:8787/jobs

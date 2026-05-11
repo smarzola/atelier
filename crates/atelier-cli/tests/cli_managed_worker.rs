@@ -55,6 +55,7 @@ for line in sys.stdin:
     let assert = Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_DEBUG_JOB_OUTPUT", "1")
         .args([
             "work",
             project.to_str().expect("utf8 path"),

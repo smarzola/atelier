@@ -265,6 +265,8 @@ Response:
 
 The `after` cursor is a numeric sequence for local file-first efficiency. Item ids remain stable and can be used for retrieval/debugging.
 
+Implemented status: the daemon currently supports `GET /threads/{thread_id}`, `POST /threads/{thread_id}/items`, and `GET /threads/{thread_id}/items`. Single-item retrieval remains a planned follow-up.
+
 ### Retrieve one item
 
 ```http
@@ -328,14 +330,14 @@ Inbound item:
 }
 ```
 
-Atelier detects pending approval state, validates the reply, writes the internal prompt response, clears `pending.json`, and appends:
+Atelier detects pending approval state, validates the reply, writes the internal prompt response, and appends:
 
 ```json
 {
   "type": "atelier.approval_response",
-  "role": "assistant",
+  "role": "user",
   "content": [
-    { "type": "output_text", "text": "Approved. Continuing." }
+    { "type": "input_text", "text": "approve" }
   ],
   "metadata": {
     "decision": "accept",
@@ -350,7 +352,7 @@ No normal user-facing path requires the job id or prompt id.
 
 Gateway inbound messages map to `POST /threads/{thread_id}/items`.
 
-Gateway outbound delivery polls `GET /threads/{thread_id}/items` using a delivery cursor. Gateways render assistant messages and `atelier.approval_request` items to the external channel.
+Gateway outbound delivery polls the thread item stream using a delivery cursor. Gateways render assistant messages and `atelier.approval_request` items to the external channel, and keep raw job/event names out of normal user-facing messages.
 
 Telegram example:
 

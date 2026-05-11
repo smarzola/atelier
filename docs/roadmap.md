@@ -13,7 +13,7 @@ Next alpha work focuses on hardening the daemonized runtime and release readines
 - [x] Daemon-owned work submission.
 - [x] CLI work submits to the daemon instead of spawning workers directly.
 - [x] Prompt/completion notifications from daemon to gateways.
-- [ ] OpenAI-style conversation item interface for threads: `docs/plans/0007-openai-style-thread-items.md`.
+- [x] OpenAI-style conversation item interface for threads: `docs/plans/0007-openai-style-thread-items.md`.
 - [ ] Better session indexing.
 - [ ] Shared-project access controls.
 
@@ -152,7 +152,7 @@ Expected behavior:
 - [x] Host gateway endpoints inside the daemon.
 - [x] Add daemon-owned `/work` submission endpoint.
 - [x] Route `atelier work` through the daemon by default.
-- [ ] Prompt/completion notifications from daemon to gateways.
+- [x] Prompt/completion notifications from daemon to gateways.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [x] Packaging workflow for macOS Apple Silicon, Linux ARM64, and Linux x86_64.
