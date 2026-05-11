@@ -18,7 +18,7 @@ The alpha currently supports:
 - threads, jobs, prompts, recovery, and session lineage;
 - a loopback-first daemon HTTP API;
 - generic gateway events;
-- a Telegram daemon gateway with webhook setup, secret validation, inbound update routing, outbound Bot API `sendMessage`, job-start acknowledgements, bounded progress delivery, and final results.
+- a Telegram daemon gateway with webhook setup, secret validation, inbound update routing, outbound Bot API `sendMessage`, and job-start acknowledgements.
 
 Release archives are built only for:
 
@@ -112,31 +112,24 @@ atelier work hello-world \
 
 The dry-run is intentionally daemon-free. It records a dry-run job and prints the Codex invocation and injected person/thread context.
 
-### 6. Send work into the thread from the CLI
+### 6. Run work from the CLI
 
 ```bash
-atelier thread send hello-world \
+atelier work hello-world \
   --thread "$THREAD" \
   --as alice \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand, but thread-native send/follow is the preferred ongoing workflow. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer. Thread events are bounded: Atelier records lifecycle events, prompt notifications, coalesced agent-message snapshots, and final results rather than streaming token-by-token updates. Inspect it from the CLI:
+Atelier submits the job to the daemon. Inspect it from the CLI:
 
 ```bash
 atelier jobs list hello-world
 atelier jobs show hello-world <job-id>
 atelier prompts inbox
-atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
-If Codex needs approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval through the thread:
-
-```bash
-atelier thread send hello-world --thread "$THREAD" --as alice approve
-```
-
-Use `atelier prompts inbox/show/respond` when you need to inspect details or send structured prompt input. While dogfooding this flow, Codex asked for file-change approval before writing `HELLO.md`.
+If Codex needs approval, the job becomes `waiting-for-prompt`. While dogfooding this flow, Codex asked for file-change approval before writing `HELLO.md`.
 
 ### 7. Use the API for the same workflow
 

@@ -145,7 +145,6 @@ atelier prompts inbox
 atelier prompts list <project-or-alias>
 atelier prompts show <project-or-alias> <prompt-id>
 atelier prompts respond <project-or-alias> <prompt-id> accept
-atelier prompts respond-latest <project-or-alias> <job-id> accept
 atelier prompts respond <project-or-alias> <prompt-id> answer --text "example answer"
 atelier prompts respond <project-or-alias> <prompt-id> accept --json '{"decision":"accept"}'
 atelier jobs recover <project-or-alias> <job-id>
@@ -153,13 +152,11 @@ atelier jobs recover <project-or-alias> --all-idle
 atelier jobs recover <project-or-alias> --all-worker-lost
 ```
 
-Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list` and daemon `/jobs` reconcile `running` or `waiting-for-prompt` jobs with worker metadata and mark jobs `worker-lost` when their worker process is gone. Daemon `/jobs` includes recovery hints for stale jobs, and daemon `/status` includes the running executable path, version, and worker command so rebuild-related daemon/worker drift is visible.
+Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
 
 Gateway-originated actions append JSON Lines audit events to `~/.atelier/gateway/audit.jsonl` or `$ATELIER_HOME/gateway/audit.jsonl`. The audit log records prompt responses and message-start actions with gateway identifiers, resolved project/thread/person values, job or prompt ids, result, and a Unix timestamp while keeping the project folder as the source of project knowledge.
 
 Atelier records app-server thread metadata in the Atelier thread's `codex-sessions.jsonl` file. That lineage stores the Codex app-server thread id, the job id, and the session path when Codex reports one. This keeps recovery and future resume UX grounded in Codex-native state rather than a parallel transcript store.
-
-Codex app-server messages are mirrored into the project-local thread event stream as bounded runtime events. Atelier records `agent_message_snapshot` events for observable progress and writes one `final_result` at turn completion. Gateways read the same stream and delivery cursors coalesce duplicate progress rather than building a separate gateway transcript.
 
 The default project concurrency policy is conservative single-writer: a new job refuses to start while another job in the same project is `running` or `waiting-for-prompt`. Parallel reads and future worktree-based write strategies can be added explicitly, but the default protects shared project folders from overlapping writes.
 

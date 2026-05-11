@@ -95,11 +95,9 @@ for line in sys.stdin:
     let status_path = std::path::Path::new(job_dir).join("status.json");
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let status_text = std::fs::read_to_string(&status_path).expect("read status");
-        let Ok(status) = serde_json::from_str::<Value>(&status_text) else {
-            std::thread::sleep(Duration::from_millis(100));
-            continue;
-        };
+        let status: Value =
+            serde_json::from_str(&std::fs::read_to_string(&status_path).expect("read status"))
+                .expect("status json");
         if status["status"] == "succeeded" {
             break;
         }
@@ -113,19 +111,6 @@ for line in sys.stdin:
     let result = std::fs::read_to_string(std::path::Path::new(job_dir).join("result.md"))
         .expect("read result");
     assert!(result.contains("done"));
-
-    let events_path = project
-        .join(".atelier/threads")
-        .join(&thread_id)
-        .join("events.jsonl");
-    let events = std::fs::read_to_string(&events_path).expect("read thread events");
-    assert!(events.contains("\"kind\":\"job_started\""), "{events}");
-    assert!(
-        events.contains("\"kind\":\"job_status_changed\""),
-        "{events}"
-    );
-    assert!(events.contains("\"kind\":\"prompt_required\""), "{events}");
-    assert!(events.contains("\"kind\":\"final_result\""), "{events}");
 
     let _ = daemon.kill();
 }

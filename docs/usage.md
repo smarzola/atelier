@@ -17,9 +17,8 @@ Key concepts:
 - **Home workspace:** global Atelier state. It stores person memory, project registry, gateway person bindings, and gateway audit logs.
 - **Person:** a human identity. Person memory is global and describes the person, not projects.
 - **Project:** a durable working folder. Project-specific state belongs in the project folder under `.atelier/` and Codex-native files such as `AGENTS.md`, `.agents/skills`, and `.codex/config.toml`.
-- **Thread:** one Atelier workstream inside a project. Gateway threads, Codex session lineage, and durable output events bind to Atelier threads.
+- **Thread:** one Atelier workstream inside a project. Gateway threads and Codex session lineage bind to Atelier threads.
 - **Job:** one Atelier-launched Codex run. Jobs live under `.atelier/jobs/` in the project.
-- **Thread event:** an append-only event in `.atelier/threads/<thread-id>/events.jsonl`. CLI, API, and gateways should read this shared event stream instead of inventing separate delivery state.
 
 ## Walkthrough: create a hello-world project
 
@@ -121,40 +120,28 @@ atelier work hello-world \
 
 The dry-run does not require the daemon. It writes a dry-run job artifact and prints the Codex command plus explicit context injection, including the current person and thread.
 
-### Send the first real thread message from the CLI
+### Run the first real task from the CLI
 
 ```bash
-atelier thread send hello-world \
+atelier work hello-world \
   --thread "$THREAD" \
   --as alice \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand for starting managed work, but the thread-native command is preferred for ongoing workstreams. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer.
-
-The shared thread event stream is intentionally bounded. Atelier records lifecycle events, prompt notifications, queued-message notifications, coalesced `agent_message_snapshot` progress, and `final_result`; it does not send token-by-token gateway spam.
-
-Inspect the job and follow the shared thread event stream:
+Atelier submits the job to the daemon. Inspect it:
 
 ```bash
 atelier jobs list hello-world
 atelier jobs show hello-world <job-id>
-atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
-If Codex asks for approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval from the thread itself:
-
-```bash
-atelier thread send hello-world --thread "$THREAD" --as alice approve
-```
-
-Or use the explicit prompt commands when you need to inspect details or send structured input:
+If Codex asks for approval, the job becomes `waiting-for-prompt`:
 
 ```bash
 atelier prompts inbox
 atelier prompts show hello-world <prompt-id>
 atelier prompts respond hello-world <prompt-id> accept
-atelier prompts respond-latest hello-world <job-id> accept
 ```
 
 During a live dogfood run, Codex asked for file-change approval and then created this file:
@@ -214,17 +201,7 @@ curl -s http://127.0.0.1:8787/work \
   -d "{\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
 ```
 
-### Thread events, jobs, and prompts through the API
-
-Read the shared thread event stream with a stateless cursor:
-
-```bash
-curl -s "http://127.0.0.1:8787/events?project=hello-world&thread=$THREAD&after=0"
-```
-
-The response contains `events` and `last_sequence`. Use `last_sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher. Durable subscribers can persist their own delivery cursor under `.atelier/threads/<thread-id>/delivery-cursors/` so daemon restarts do not duplicate delivered events.
-
-Inspect current jobs and prompts:
+### Jobs and prompts through the API
 
 ```bash
 curl -s http://127.0.0.1:8787/jobs
@@ -323,7 +300,7 @@ curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 ```
 
-Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id. When the job completes, Atelier reads the shared thread event stream, coalesces progress to a bounded set of useful messages, publishes prompt/progress/final output back to the same Telegram chat/topic, and advances delivery cursors to avoid duplicate sends.
+Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id.
 
 Send a Telegram message through the Bot API:
 
@@ -332,10 +309,6 @@ curl -s http://127.0.0.1:8787/adapters/telegram/send-message \
   -H 'Content-Type: application/json' \
   -d '{"chat_id":"1000","message_thread_id":"77","text":"Example notification"}'
 ```
-
-## Dogfood verification
-
-The thread-native flow was dogfooded against a temporary mock project with a fake Codex app-server on `PATH`. Two `atelier thread send` interactions in the same thread produced the shared CLI/API event stream (`job_started`, `agent_message_snapshot`, `final_result`, `job_succeeded`), recorded Codex session lineage, and wrote a project artifact. This verifies that CLI send/follow, daemon work submission, API event polling, Codex app-server lineage, and project-local artifacts all operate through the same thread model.
 
 ## Codex-native skills and MCP
 
@@ -394,8 +367,6 @@ atelier jobs recover hello-world <job-id>
 atelier jobs recover hello-world --all-idle
 atelier jobs recover hello-world --all-worker-lost
 ```
-
-The daemon `/status` response includes its running executable path, version, and worker command to help diagnose daemon/worker drift after local rebuilds. The `/jobs` response includes `recovery_hint` for `worker-lost`, `idle-timeout`, and currently active writer-slot jobs.
 
 ## Audit logs
 

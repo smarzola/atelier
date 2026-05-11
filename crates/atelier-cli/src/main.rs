@@ -345,21 +345,6 @@ enum PromptsCommand {
         /// Decision to record.
         decision: String,
     },
-    /// Record a response for the newest pending prompt in one job.
-    RespondLatest {
-        /// Project folder path.
-        project_path: PathBuf,
-        /// Job id whose newest pending prompt should be answered.
-        job_id: String,
-        /// Optional text answer for user-input or elicitation prompts.
-        #[arg(long)]
-        text: Option<String>,
-        /// Optional JSON response object to forward to Codex.
-        #[arg(long)]
-        json: Option<String>,
-        /// Decision to record.
-        decision: String,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -449,36 +434,6 @@ enum ThreadCommand {
         #[arg(long)]
         porcelain: bool,
     },
-    /// Send a message into an Atelier thread through the daemon.
-    Send {
-        /// Project folder path or registered project alias.
-        project_path: PathBuf,
-        /// Atelier thread id.
-        #[arg(long)]
-        thread: String,
-        /// Current person id/name.
-        #[arg(long = "as")]
-        person: String,
-        /// Daemon HTTP endpoint for managed work submission.
-        #[arg(long)]
-        daemon_url: Option<String>,
-        /// Terminate an idle managed worker after this many seconds.
-        #[arg(long, default_value_t = 300)]
-        idle_timeout_seconds: u64,
-        /// Message text.
-        prompt: String,
-    },
-    /// Print events from an Atelier thread.
-    Follow {
-        /// Project folder path or registered project alias.
-        project_path: PathBuf,
-        /// Atelier thread id.
-        #[arg(long)]
-        thread: String,
-        /// Only show events after this sequence number.
-        #[arg(long, default_value_t = 0)]
-        after: u64,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -543,75 +498,20 @@ fn main() -> Result<()> {
                 }
             },
         },
-        Command::Thread { command } => {
-            match command {
-                ThreadCommand::New {
-                    project_path,
-                    title,
-                    porcelain,
-                } => {
-                    let thread = atelier_core::thread::create_thread(&project_path, &title)?;
-                    if porcelain {
-                        println!("{}", thread.id);
-                    } else {
-                        println!("Created thread '{}' ({})", thread.title, thread.id);
-                    }
-                }
-                ThreadCommand::Send {
-                    project_path,
-                    thread,
-                    person,
-                    daemon_url,
-                    idle_timeout_seconds,
-                    prompt,
-                } => {
-                    let resolved_project_path = resolve_project_arg(&project_path)?;
-                    match atelier_core::thread_interaction::decide_thread_interaction(
-                    &resolved_project_path,
-                    &thread,
-                    &prompt,
-                )? {
-                    atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt {
-                        prompt_id,
-                    } => {
-                        let decision = normalize_thread_prompt_decision(&prompt)?;
-                        respond_to_prompt(&resolved_project_path, &prompt_id, &decision, None, None)?;
-                        println!("Status: prompt-answered");
-                        println!("Prompt: {prompt_id}");
-                        println!("Decision: {decision}");
-                    }
-                    _ => {
-                        let project_arg = project_path.to_string_lossy().to_string();
-                        let response = submit_managed_work_to_daemon(
-                            &daemon_url.unwrap_or_else(default_daemon_url),
-                            &project_arg,
-                            &thread,
-                            &person,
-                            &prompt,
-                            idle_timeout_seconds,
-                        )?;
-                        println!("Status: started");
-                        println!("Job: {}", response.job_id);
-                        println!("Job directory: {}", response.job_dir.display());
-                    }
-                }
-                }
-                ThreadCommand::Follow {
-                    project_path,
-                    thread,
-                    after,
-                } => {
-                    let project_path = resolve_project_arg(&project_path)?;
-                    for event in atelier_core::thread_events::read_thread_events(
-                        &project_path,
-                        &thread,
-                        after,
-                    )? {
-                        println!("{}\t{}\t{}", event.sequence, event.kind, event.payload);
-                    }
+        Command::Thread { command } => match command {
+            ThreadCommand::New {
+                project_path,
+                title,
+                porcelain,
+            } => {
+                let thread = atelier_core::thread::create_thread(&project_path, &title)?;
+                if porcelain {
+                    println!("{}", thread.id);
+                } else {
+                    println!("Created thread '{}' ({})", thread.title, thread.id);
                 }
             }
-        }
+        },
         Command::Threads { command } => match command {
             ThreadsCommand::List { project_path } => {
                 for thread in atelier_core::thread::list_threads(&project_path)? {
@@ -748,19 +648,20 @@ fn main() -> Result<()> {
                 decision,
             } => {
                 let project_path = resolve_project_arg(&project_path)?;
-                respond_to_prompt(&project_path, &prompt_id, &decision, text, json)?;
-                println!("Recorded response {decision} for {prompt_id}");
-            }
-            PromptsCommand::RespondLatest {
-                project_path,
-                job_id,
-                text,
-                json,
-                decision,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                let prompt_id = latest_pending_prompt_id_for_job(&project_path, &job_id)?;
-                respond_to_prompt(&project_path, &prompt_id, &decision, text, json)?;
+                let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
+                let response = build_prompt_response(&prompt, &decision, text, json)?;
+                prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
+                let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
+                std::fs::write(
+                    prompt_path,
+                    serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
+                )?;
+                let responses_dir = job_dir.join("responses");
+                std::fs::create_dir_all(&responses_dir)?;
+                std::fs::write(
+                    responses_dir.join(format!("{}.json", prompt.id)),
+                    serde_json::to_string_pretty(&response)?,
+                )?;
                 println!("Recorded response {decision} for {prompt_id}");
             }
         },
@@ -1253,15 +1154,13 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
     }
     let method = request.method;
     let path = request.path;
-    let (route_path, query) = split_route_and_query(&path);
     let body = request.body;
-    let response = match (method.as_str(), route_path) {
+    let response = match (method.as_str(), path.as_str()) {
         ("GET", "/health") => serde_json::json!({"status":"ok"}),
         ("GET", "/status") => gateway_status_json()?,
         ("GET", "/jobs") => gateway_jobs_json()?,
         ("GET", "/prompts") => gateway_prompts_json()?,
         ("GET", "/projects") => gateway_projects_json()?,
-        ("GET", "/events") => gateway_events_json(query)?,
         ("POST", "/projects") => {
             let request: GatewayProjectCreateRequest = serde_json::from_str(&body)?;
             atelier_core::project::init_project(&request.path, &request.name)?;
@@ -1549,122 +1448,28 @@ fn parse_loopback_http_url(base_url: &str) -> Result<(String, u16)> {
 
 fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {
     let project_path = resolve_project_arg(Path::new(&request.project))?;
-    handle_thread_message(ThreadMessageRuntimeRequest {
-        project: request.project,
-        project_path,
-        thread: request.thread,
-        person: request.person,
-        text: request.text,
-        idle_timeout_seconds: request.idle_timeout_seconds,
-        audit_action: "work_started",
-        gateway: None,
-        external_thread: None,
-        external_user: None,
-    })
-}
-
-fn handle_gateway_message_event(
-    event: atelier_core::gateway::GatewayMessageEvent,
-) -> Result<serde_json::Value> {
-    let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
-    let person = resolve_gateway_person(&event)?;
-    handle_thread_message(ThreadMessageRuntimeRequest {
-        project,
-        project_path,
-        thread,
-        person,
-        text: event.text,
-        idle_timeout_seconds: 300,
-        audit_action: "message_started",
-        gateway: Some(event.gateway),
-        external_thread: event.external_thread,
-        external_user: event.external_user,
-    })
-}
-
-struct ThreadMessageRuntimeRequest {
-    project: String,
-    project_path: PathBuf,
-    thread: String,
-    person: String,
-    text: String,
-    idle_timeout_seconds: u64,
-    audit_action: &'static str,
-    gateway: Option<String>,
-    external_thread: Option<String>,
-    external_user: Option<String>,
-}
-
-fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
-    let decision = atelier_core::thread_interaction::decide_thread_interaction(
-        &request.project_path,
-        &request.thread,
-        &request.text,
-    )?;
-    match decision {
-        atelier_core::thread_interaction::ThreadInteractionDecision::QueueForRunningJob {
-            job_id,
-        } => {
-            let queued = atelier_core::thread_queue::queue_thread_message(
-                &request.project_path,
-                &request.thread,
-                &request.person,
-                &request.text,
-            )?;
-            Ok(serde_json::json!({
-                "status":"queued",
-                "job_id":job_id,
-                "queued_sequence":queued.sequence,
-                "project":request.project,
-                "thread":request.thread,
-                "person":request.person
-            }))
-        }
-        atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt { prompt_id } => {
-            Ok(serde_json::json!({
-                "status":"prompt-reply-required",
-                "prompt_id":prompt_id,
-                "project":request.project,
-                "thread":request.thread,
-                "person":request.person
-            }))
-        }
-        atelier_core::thread_interaction::ThreadInteractionDecision::ContinueSession { .. }
-        | atelier_core::thread_interaction::ThreadInteractionDecision::StartJob => {
-            start_thread_message_job(request)
-        }
-    }
-}
-
-fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
-    ensure_project_writer_available(&request.project_path)?;
+    ensure_project_writer_available(&project_path)?;
     let context = build_context(&request.person, &request.thread, &request.text)?;
     let job = atelier_core::job::create_job(
-        &request.project_path,
+        &project_path,
         &request.thread,
         &request.person,
         &request.text,
         &context,
         false,
     )?;
-    if request.gateway.as_deref() == Some("telegram") {
-        persist_telegram_job_origin(&job.dir, request.external_thread.as_deref())?;
-    }
     run_managed_app_server_job(
         &job,
-        &request.project_path,
+        &project_path,
         &request.thread,
         &request.person,
         &context,
         request.idle_timeout_seconds,
     )?;
     append_gateway_audit_event(serde_json::json!({
-        "action": request.audit_action,
-        "gateway": request.gateway,
-        "external_thread": request.external_thread,
-        "external_user": request.external_user,
+        "action": "work_started",
         "project": request.project,
-        "project_path": request.project_path,
+        "project_path": project_path,
         "thread": request.thread,
         "person": request.person,
         "job_id": job.id,
@@ -1680,33 +1485,37 @@ fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serd
     }))
 }
 
-fn persist_telegram_job_origin(job_dir: &Path, external_thread: Option<&str>) -> Result<()> {
-    let Some(external_thread) = external_thread else {
-        return Ok(());
-    };
-    let Some((chat_id, message_thread_id)) = parse_telegram_external_thread(external_thread) else {
-        return Ok(());
-    };
-    std::fs::write(
-        job_dir.join("gateway-origin.json"),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "gateway":"telegram",
-            "chat_id": chat_id,
-            "message_thread_id": message_thread_id,
-        }))?,
+fn handle_gateway_message_event(
+    event: atelier_core::gateway::GatewayMessageEvent,
+) -> Result<serde_json::Value> {
+    let (project, project_path, thread) = resolve_gateway_project_thread(&event)?;
+    let person = resolve_gateway_person(&event)?;
+    ensure_project_writer_available(&project_path)?;
+    let context = build_context(&person, &thread, &event.text)?;
+    let job = atelier_core::job::create_job(
+        &project_path,
+        &thread,
+        &person,
+        &event.text,
+        &context,
+        false,
     )?;
-    Ok(())
-}
-
-fn parse_telegram_external_thread(external_thread: &str) -> Option<(String, Option<String>)> {
-    let parts = external_thread.split(':').collect::<Vec<_>>();
-    match parts.as_slice() {
-        ["chat", chat_id] => Some(((*chat_id).to_string(), None)),
-        ["chat", chat_id, "topic", topic_id] => {
-            Some(((*chat_id).to_string(), Some((*topic_id).to_string())))
-        }
-        _ => None,
-    }
+    run_managed_app_server_job(&job, &project_path, &thread, &person, &context, 300)?;
+    append_gateway_audit_event(serde_json::json!({
+        "action": "message_started",
+        "gateway": event.gateway,
+        "external_thread": event.external_thread,
+        "external_user": event.external_user,
+        "project": project,
+        "project_path": project_path,
+        "thread": thread,
+        "person": person,
+        "job_id": job.id,
+        "result": "started"
+    }))?;
+    Ok(
+        serde_json::json!({"status":"started","job_id":job.id,"job_dir":job.dir,"project":project,"thread":thread,"person":person}),
+    )
 }
 
 fn append_gateway_audit_event(mut event: serde_json::Value) -> Result<()> {
@@ -1949,38 +1758,6 @@ fn write_json_response(
     Ok(())
 }
 
-fn split_route_and_query(path: &str) -> (&str, &str) {
-    path.split_once('?').unwrap_or((path, ""))
-}
-
-fn query_value(query: &str, key: &str) -> Option<String> {
-    query.split('&').find_map(|pair| {
-        let (name, value) = pair.split_once('=')?;
-        if name == key {
-            Some(value.to_string())
-        } else {
-            None
-        }
-    })
-}
-
-fn gateway_events_json(query: &str) -> Result<serde_json::Value> {
-    let project = query_value(query, "project").context("events endpoint requires project")?;
-    let thread = query_value(query, "thread").context("events endpoint requires thread")?;
-    let after = query_value(query, "after")
-        .as_deref()
-        .unwrap_or("0")
-        .parse::<u64>()
-        .context("parse events after cursor")?;
-    let project_path = resolve_project_arg(Path::new(&project))?;
-    let events = atelier_core::thread_events::read_thread_events(&project_path, &thread, after)?;
-    let last_sequence = events.last().map(|event| event.sequence).unwrap_or(after);
-    Ok(serde_json::json!({
-        "events": events,
-        "last_sequence": last_sequence
-    }))
-}
-
 fn gateway_status_json() -> Result<serde_json::Value> {
     let projects = atelier_core::registry::list_projects()?;
     let mut jobs = Vec::new();
@@ -2000,24 +1777,12 @@ fn gateway_status_json() -> Result<serde_json::Value> {
         }
     }
     Ok(serde_json::json!({
-        "daemon": daemon_runtime_json(),
         "projects": projects.len(),
         "active_jobs": jobs.iter().filter(|status| status.status == "running" || status.status == "waiting-for-prompt").count(),
         "waiting_prompts": waiting_prompts,
         "worker_lost_jobs": jobs.iter().filter(|status| status.status == "worker-lost").count(),
         "idle_timeout_jobs": jobs.iter().filter(|status| status.status == "idle-timeout").count(),
     }))
-}
-
-fn daemon_runtime_json() -> serde_json::Value {
-    serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "executable": std::env::current_exe()
-            .ok()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-        "worker_command": "__managed-worker",
-    })
 }
 
 fn gateway_projects_json() -> Result<serde_json::Value> {
@@ -2032,39 +1797,16 @@ fn gateway_jobs_json() -> Result<serde_json::Value> {
     let mut jobs = Vec::new();
     for project in atelier_core::registry::list_projects()? {
         for status in list_jobs(&project.path)? {
-            let recovery_hint = recovery_hint_for_job(&project.name, &status);
             jobs.push(serde_json::json!({
                 "project": project.name,
                 "id": status.id,
                 "status": status.status,
                 "thread_id": status.thread_id,
                 "person": status.person,
-                "recovery_hint": recovery_hint,
             }));
         }
     }
     Ok(serde_json::json!({"jobs": jobs}))
-}
-
-fn recovery_hint_for_job(
-    project_name: &str,
-    status: &atelier_core::job::JobStatus,
-) -> Option<String> {
-    match status.status.as_str() {
-        "worker-lost" => Some(format!(
-            "Run `atelier jobs recover {project_name} {}` or `atelier jobs recover {project_name} --all-worker-lost`.",
-            status.id
-        )),
-        "idle-timeout" => Some(format!(
-            "Run `atelier jobs recover {project_name} {}` or `atelier jobs recover {project_name} --all-idle`.",
-            status.id
-        )),
-        "running" | "waiting-for-prompt" => Some(format!(
-            "This job owns the project writer slot. Inspect with `atelier jobs show {project_name} {}` before starting another writer.",
-            status.id
-        )),
-        _ => None,
-    }
 }
 
 fn gateway_prompts_json() -> Result<serde_json::Value> {
@@ -2084,49 +1826,6 @@ fn gateway_prompts_json() -> Result<serde_json::Value> {
         }
     }
     Ok(serde_json::json!({"prompts": prompts}))
-}
-
-fn normalize_thread_prompt_decision(text: &str) -> Result<String> {
-    match text.trim().to_ascii_lowercase().as_str() {
-        "approve" | "accept" | "yes" | "y" => Ok("accept".to_string()),
-        "decline" | "deny" | "no" | "n" => Ok("decline".to_string()),
-        "cancel" => Ok("cancel".to_string()),
-        other => anyhow::bail!(
-            "thread prompt replies support approve/accept/yes, decline/deny/no, or cancel; got {other}"
-        ),
-    }
-}
-
-fn latest_pending_prompt_id_for_job(project_path: &Path, job_id: &str) -> Result<String> {
-    let prompts_dir = project_path
-        .join(".atelier/jobs")
-        .join(job_id)
-        .join("prompts");
-    let mut prompts = Vec::new();
-    for prompt_entry in std::fs::read_dir(&prompts_dir)
-        .with_context(|| format!("read {}", prompts_dir.display()))?
-    {
-        let path = prompt_entry?.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-            continue;
-        }
-        let prompt: atelier_core::codex_app_server::PendingPrompt = serde_json::from_str(
-            &std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?,
-        )
-        .with_context(|| format!("parse {}", path.display()))?;
-        if prompt.status == atelier_core::codex_app_server::PendingPromptStatus::Pending {
-            prompts.push(prompt);
-        }
-    }
-    prompts.sort_by(|left, right| {
-        left.codex_request_id
-            .cmp(&right.codex_request_id)
-            .then(left.id.cmp(&right.id))
-    });
-    prompts
-        .last()
-        .map(|prompt| prompt.id.clone())
-        .with_context(|| format!("no pending prompts found for job {job_id}"))
 }
 
 fn respond_to_prompt(
@@ -2511,27 +2210,16 @@ fn run_managed_worker(
         let trimmed = line.trim_end();
         if let Some(prompt) = atelier_core::codex_app_server::parse_pending_prompt(trimmed) {
             persist_prompt(job_dir, &prompt)?;
-            append_prompt_required_event(job_dir, thread, &prompt)?;
             write_job_status(job_dir, "waiting-for-prompt", thread, person)?;
             wait_for_prompt_response(job_dir, &prompt, &mut stdin, idle_timeout_seconds)?;
             write_job_status(job_dir, "running", thread, person)?;
             continue;
         }
         if let Some(message) = agent_message_text(trimmed) {
-            std::fs::write(job_dir.join("result.md"), &message)?;
-            append_agent_message_event(job_dir, thread, &message)?;
+            std::fs::write(job_dir.join("result.md"), message)?;
         }
         if message_method(trimmed).as_deref() == Some("turn/completed") {
-            append_final_result_event(job_dir, thread)?;
             write_job_status(job_dir, "succeeded", thread, person)?;
-            publish_telegram_bounded_progress(job_dir, thread)?;
-            if let Some(project_path) = project_path_from_job_dir(job_dir) {
-                atelier_core::thread_queue::mark_queued_messages_ready(
-                    &project_path,
-                    thread,
-                    Some(&job_id_from_dir(job_dir)),
-                )?;
-            }
             return Ok(());
         }
     }
@@ -2597,129 +2285,16 @@ fn message_method(line: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn publish_telegram_bounded_progress(job_dir: &Path, thread: &str) -> Result<()> {
-    let origin_path = job_dir.join("gateway-origin.json");
-    if !origin_path.exists() {
-        return Ok(());
-    }
-    let origin: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(&origin_path).context("read gateway origin")?,
-    )?;
-    if origin.get("gateway").and_then(serde_json::Value::as_str) != Some("telegram") {
-        return Ok(());
-    }
-    let Some(project_path) = project_path_from_job_dir(job_dir) else {
-        return Ok(());
-    };
-    let subscriber_id = format!("telegram-{}", job_id_from_dir(job_dir));
-    let events = atelier_core::thread_delivery::read_undelivered_events(
-        &project_path,
-        thread,
-        &subscriber_id,
-    )?;
-    let progress_events = atelier_core::thread_progress::select_bounded_progress_events(&events);
-    let delivered_sequences = progress_events
-        .iter()
-        .map(|event| event.sequence)
-        .collect::<std::collections::HashSet<_>>();
-    let mut last_sequence = None;
-    for event in &events {
-        last_sequence = Some(event.sequence);
-        if !delivered_sequences.contains(&event.sequence) {
-            continue;
-        }
-        let Some(text) = event
-            .payload
-            .get("text")
-            .and_then(serde_json::Value::as_str)
-        else {
-            continue;
-        };
-        telegram_send_message_body(
-            &load_telegram_config(),
-            origin
-                .get("chat_id")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null),
-            origin.get("message_thread_id").cloned(),
-            None,
-            text.to_string(),
-        )?;
-    }
-    if let Some(sequence) = last_sequence {
-        atelier_core::thread_delivery::advance_delivery_cursor(
-            &project_path,
-            thread,
-            &subscriber_id,
-            sequence,
-        )?;
-    }
-    Ok(())
-}
-
-fn append_prompt_required_event(
-    job_dir: &Path,
-    thread: &str,
-    prompt: &atelier_core::codex_app_server::PendingPrompt,
-) -> Result<()> {
-    let Some(project_path) = project_path_from_job_dir(job_dir) else {
-        return Ok(());
-    };
-    atelier_core::thread_events::append_thread_event(
-        &project_path,
-        thread,
-        Some(&job_id_from_dir(job_dir)),
-        "prompt_required",
-        serde_json::json!({
-            "prompt_id": prompt.id,
-            "summary": prompt.summary,
-            "codex_request_id": prompt.codex_request_id,
-        }),
-    )?;
-    Ok(())
-}
-
-fn append_agent_message_event(job_dir: &Path, thread: &str, message: &str) -> Result<()> {
-    let Some(project_path) = project_path_from_job_dir(job_dir) else {
-        return Ok(());
-    };
-    let job_id = job_id_from_dir(job_dir);
-    atelier_core::thread_events::append_thread_event(
-        &project_path,
-        thread,
-        Some(&job_id),
-        "agent_message_snapshot",
-        serde_json::json!({"text": message}),
-    )?;
-    Ok(())
-}
-
-fn append_final_result_event(job_dir: &Path, thread: &str) -> Result<()> {
-    let Some(project_path) = project_path_from_job_dir(job_dir) else {
-        return Ok(());
-    };
-    let result_path = job_dir.join("result.md");
-    let text = match std::fs::read_to_string(&result_path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error).with_context(|| format!("read {}", result_path.display())),
-    };
-    atelier_core::thread_events::append_thread_event(
-        &project_path,
-        thread,
-        Some(&job_id_from_dir(job_dir)),
-        "final_result",
-        serde_json::json!({"text": text}),
-    )?;
-    Ok(())
-}
-
 fn write_job_status(job_dir: &Path, status: &str, thread: &str, person: &str) -> Result<()> {
-    let id = job_id_from_dir(job_dir);
+    let id = job_dir
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("unknown-job")
+        .to_string();
     atelier_core::job::update_status(
         job_dir,
         atelier_core::job::JobStatus {
-            id: id.clone(),
+            id,
             status: status.to_string(),
             thread_id: thread.to_string(),
             person: person.to_string(),
@@ -2728,43 +2303,7 @@ fn write_job_status(job_dir: &Path, status: &str, thread: &str, person: &str) ->
             codex_binary: Some("codex".to_string()),
             invocation: vec!["app-server".to_string()],
         },
-    )?;
-    if let Some(project_path) = project_path_from_job_dir(job_dir) {
-        let kind = match status {
-            "running" => "job_started",
-            "succeeded" => "job_succeeded",
-            "failed" => "job_failed",
-            _ => "job_status_changed",
-        };
-        atelier_core::thread_events::append_thread_event(
-            &project_path,
-            thread,
-            Some(&id),
-            kind,
-            serde_json::json!({"status": status}),
-        )?;
-    }
-    Ok(())
-}
-
-fn job_id_from_dir(job_dir: &Path) -> String {
-    job_dir
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("unknown-job")
-        .to_string()
-}
-
-fn project_path_from_job_dir(job_dir: &Path) -> Option<PathBuf> {
-    let jobs_dir = job_dir.parent()?;
-    if jobs_dir.file_name()?.to_str()? != "jobs" {
-        return None;
-    }
-    let atelier_dir = jobs_dir.parent()?;
-    if atelier_dir.file_name()?.to_str()? != ".atelier" {
-        return None;
-    }
-    atelier_dir.parent().map(Path::to_path_buf)
+    )
 }
 
 fn send_json(stdin: &mut std::process::ChildStdin, value: serde_json::Value) -> Result<()> {

@@ -204,20 +204,16 @@ atelier resume [--thread <thread-id>] [--last | <session-id>]
 atelier continue [--thread <thread-id>] [--last | <session-id>] "prompt"
 ```
 
-Thread folders store bindings, summaries, events, jobs, and Codex session lineage:
+Thread folders store bindings, summaries, jobs, and Codex session lineage:
 
 ```text
 .atelier/threads/thread-abc/
   thread.toml
   summary.md
   gateway-bindings.toml
-  events.jsonl
-  delivery-cursors/
   codex-sessions.jsonl
   jobs/
 ```
-
-`events.jsonl` is the durable thread event stream used by CLI, API, and gateway surfaces. It is append-only and sequence-numbered so clients can read from an `after` cursor and avoid replaying old output. Job folders keep source artifacts such as `status.json`, `protocol.jsonl`, and `result.md`; thread events are the shared delivery/index layer over those artifacts.
 
 Atelier job folders should store pointers to Codex session IDs when available:
 
@@ -244,10 +240,10 @@ A gateway message is resolved into four layers:
 Example:
 
 ```text
-atelier thread send example-project --thread thread-abc --as alice "summarize the latest research notes"
+/work example-project summarize the latest research notes
 ```
 
-Atelier resolves the sender to a person, loads only that person's memory, routes to `example-project`, resolves the Atelier thread, and submits the message through the shared thread interaction service. That service may answer a pending prompt, queue the message behind a running job, or create a new job folder and invoke Codex in the project root.
+Atelier resolves the sender to a person, loads only that person's memory, routes to `example-project`, resolves or creates an Atelier thread, creates a job folder, and invokes Codex in the project root.
 
 ### Gateway thread bindings
 
@@ -279,7 +275,6 @@ The daemon-hosted HTTP gateway exposes JSON endpoints:
 - `GET /jobs`
 - `GET /prompts`
 - `GET /projects`
-- `GET /events?project=<name>&thread=<thread-id>&after=<sequence>`
 - `POST /projects`
 - `POST /work`
 - `POST /prompts/respond`
@@ -290,7 +285,7 @@ The daemon-hosted HTTP gateway exposes JSON endpoints:
 
 The daemon listens on localhost by default and refuses non-loopback addresses unless explicitly allowed. `atelier gateway serve` remains available as a compatibility/developer command for the same HTTP surface, but product usage should run `atelier daemon run`.
 
-The Telegram adapter uses `ATELIER_TELEGRAM_BOT_TOKEN` for outbound Bot API calls, defaults to `https://api.telegram.org`, and accepts `ATELIER_TELEGRAM_API_BASE` for local test servers or proxies. Webhook setup posts `url` from `ATELIER_TELEGRAM_WEBHOOK_URL` and includes `secret_token` when `ATELIER_TELEGRAM_WEBHOOK_SECRET` is set. Incoming Telegram updates validate `X-Telegram-Bot-Api-Secret-Token` against that secret before they are translated into the generic gateway message event. When an update starts a job, the adapter sends a Bot API acknowledgement to the originating chat/topic with the job id. Job output is delivered from the shared thread event stream using a bounded policy: prompt notifications and queued-message notices are deliverable immediately, agent-message snapshots are coalesced, adjacent duplicate text is collapsed, and the final result is always preserved. Delivery cursors prevent duplicate sends after restart.
+The Telegram adapter uses `ATELIER_TELEGRAM_BOT_TOKEN` for outbound Bot API calls, defaults to `https://api.telegram.org`, and accepts `ATELIER_TELEGRAM_API_BASE` for local test servers or proxies. Webhook setup posts `url` from `ATELIER_TELEGRAM_WEBHOOK_URL` and includes `secret_token` when `ATELIER_TELEGRAM_WEBHOOK_SECRET` is set. Incoming Telegram updates validate `X-Telegram-Bot-Api-Secret-Token` against that secret before they are translated into the generic gateway message event. When an update starts a job, the adapter sends a Bot API acknowledgement to the originating chat/topic with the job id.
 
 A message resolves in this order:
 
