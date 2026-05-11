@@ -265,6 +265,8 @@ Response:
 
 The `after` cursor is a numeric sequence for local file-first efficiency. Item ids remain stable and can be used for retrieval/debugging.
 
+Implemented status: the daemon currently supports `GET /threads/{thread_id}`, `POST /threads/{thread_id}/items`, and `GET /threads/{thread_id}/items`. Single-item retrieval remains a planned follow-up while the item stream migration proceeds.
+
 ### Retrieve one item
 
 ```http

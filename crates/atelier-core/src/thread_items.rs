@@ -38,7 +38,6 @@ pub fn append_user_message_item(
     metadata: Value,
 ) -> Result<ThreadItem> {
     let mut metadata = metadata_object(metadata);
-    metadata.insert("thread".to_string(), Value::String(thread_id.to_string()));
     metadata.insert("person".to_string(), Value::String(person.to_string()));
     metadata.insert("source".to_string(), Value::String(source.to_string()));
 
@@ -61,8 +60,7 @@ pub fn append_assistant_message_item(
     text: &str,
     metadata: Value,
 ) -> Result<ThreadItem> {
-    let mut metadata = metadata_object(metadata);
-    metadata.insert("thread".to_string(), Value::String(thread_id.to_string()));
+    let metadata = metadata_object(metadata);
 
     append_thread_item(
         project_path,
@@ -83,8 +81,9 @@ pub fn append_thread_item(
     item_type: &str,
     role: &str,
     content: Vec<ThreadItemContent>,
-    metadata: Map<String, Value>,
+    mut metadata: Map<String, Value>,
 ) -> Result<ThreadItem> {
+    metadata.insert("thread".to_string(), Value::String(thread_id.to_string()));
     let existing = read_thread_items(project_path, thread_id, 0)?;
     let sequence = existing.last().map(|item| item.sequence).unwrap_or(0) + 1;
     let item = ThreadItem {

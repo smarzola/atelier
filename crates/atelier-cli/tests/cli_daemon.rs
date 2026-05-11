@@ -48,6 +48,69 @@ fn daemon_work_endpoint_starts_work() {
 }
 
 #[test]
+fn daemon_thread_item_endpoints_create_list_and_show_conversation_items() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port).spawn().expect("spawn daemon");
+    wait_for_health(port);
+
+    let conversation = get_json(
+        port,
+        &format!("/threads/{thread_id}?project=example-project"),
+    );
+    assert_eq!(conversation["id"], thread_id);
+    assert_eq!(conversation["object"], "conversation");
+    assert_eq!(conversation["metadata"]["project"], "example-project");
+
+    let created = post_json(
+        port,
+        &format!("/threads/{thread_id}/items?project=example-project"),
+        r#"{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello through items"}],"metadata":{"person":"alice","source":"api"}}]}"#,
+    );
+    assert_eq!(created["object"], "list");
+    assert_eq!(created["data"].as_array().expect("created data").len(), 1);
+    assert_eq!(created["data"][0]["object"], "conversation.item");
+    assert_eq!(created["data"][0]["type"], "message");
+    assert_eq!(created["data"][0]["role"], "user");
+    assert_eq!(created["data"][0]["content"][0]["type"], "input_text");
+    assert_eq!(
+        created["data"][0]["content"][0]["text"],
+        "Hello through items"
+    );
+    assert_eq!(created["data"][0]["metadata"]["person"], "alice");
+    assert_eq!(created["data"][0]["metadata"]["thread"], thread_id);
+    assert_eq!(created["first_id"], created["data"][0]["id"]);
+    assert_eq!(created["last_id"], created["data"][0]["id"]);
+    assert_eq!(created["has_more"], false);
+
+    let listed = get_json(
+        port,
+        &format!("/threads/{thread_id}/items?project=example-project&after=0"),
+    );
+    assert_eq!(listed["object"], "list");
+    assert_eq!(listed["data"].as_array().expect("listed data").len(), 1);
+    assert_eq!(listed["first_id"], created["data"][0]["id"]);
+    assert_eq!(listed["last_id"], created["data"][0]["id"]);
+    assert_eq!(listed["has_more"], false);
+
+    let later = get_json(
+        port,
+        &format!("/threads/{thread_id}/items?project=example-project&after=1"),
+    );
+    assert_eq!(later["object"], "list");
+    assert!(later["data"].as_array().expect("later data").is_empty());
+    assert_eq!(later["first_id"], serde_json::Value::Null);
+    assert_eq!(later["last_id"], serde_json::Value::Null);
+    assert_eq!(later["has_more"], false);
+
+    let _ = daemon.kill();
+}
+
+#[test]
 fn daemon_events_endpoint_returns_thread_events_after_sequence() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");

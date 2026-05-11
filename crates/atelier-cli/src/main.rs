@@ -1113,6 +1113,28 @@ struct DaemonWorkRequest {
 }
 
 #[derive(Debug, serde::Deserialize)]
+struct ThreadItemCreateRequest {
+    items: Vec<ThreadItemCreateInput>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ThreadItemCreateInput {
+    #[serde(rename = "type")]
+    item_type: String,
+    role: String,
+    content: Vec<ThreadItemContentInput>,
+    #[serde(default)]
+    metadata: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ThreadItemContentInput {
+    #[serde(rename = "type")]
+    content_type: String,
+    text: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct DaemonWorkResponse {
     job_id: String,
     job_dir: PathBuf,
@@ -1248,6 +1270,12 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         ("GET", "/prompts") => gateway_prompts_json()?,
         ("GET", "/projects") => gateway_projects_json()?,
         ("GET", "/events") => gateway_events_json(query)?,
+        ("GET", route) if is_thread_route(route) => gateway_thread_json(route, query)?,
+        ("GET", route) if is_thread_items_route(route) => gateway_thread_items_json(route, query)?,
+        ("POST", route) if is_thread_items_route(route) => {
+            let request: ThreadItemCreateRequest = serde_json::from_str(&body)?;
+            gateway_create_thread_items_json(route, query, request)?
+        }
         ("POST", "/projects") => {
             let request: GatewayProjectCreateRequest = serde_json::from_str(&body)?;
             atelier_core::project::init_project(&request.path, &request.name)?;
@@ -1965,6 +1993,126 @@ fn gateway_events_json(query: &str) -> Result<serde_json::Value> {
         "events": events,
         "last_sequence": last_sequence
     }))
+}
+
+fn is_thread_route(route: &str) -> bool {
+    route
+        .strip_prefix("/threads/")
+        .map(|tail| !tail.is_empty() && !tail.contains('/'))
+        .unwrap_or(false)
+}
+
+fn is_thread_items_route(route: &str) -> bool {
+    route
+        .strip_prefix("/threads/")
+        .and_then(|tail| tail.strip_suffix("/items"))
+        .map(|thread| !thread.is_empty() && !thread.contains('/'))
+        .unwrap_or(false)
+}
+
+fn thread_id_from_route<'a>(route: &'a str, suffix: &str) -> Result<&'a str> {
+    route
+        .strip_prefix("/threads/")
+        .and_then(|tail| tail.strip_suffix(suffix))
+        .filter(|thread| !thread.is_empty() && !thread.contains('/'))
+        .context("invalid thread route")
+}
+
+fn gateway_thread_json(route: &str, query: &str) -> Result<serde_json::Value> {
+    let project = query_value(query, "project").context("thread endpoint requires project")?;
+    let thread = thread_id_from_route(route, "")?;
+    let project_path = resolve_project_arg(Path::new(&project))?;
+    let metadata = read_thread_metadata(&project_path, thread)?;
+    Ok(serde_json::json!({
+        "id": metadata.id,
+        "object": "conversation",
+        "created_at": 0,
+        "metadata": {
+            "project": project,
+            "title": metadata.title,
+            "status": metadata.status
+        },
+        "atelier": {
+            "state": metadata.status
+        }
+    }))
+}
+
+fn gateway_thread_items_json(route: &str, query: &str) -> Result<serde_json::Value> {
+    let project =
+        query_value(query, "project").context("thread items endpoint requires project")?;
+    let thread = thread_id_from_route(route, "/items")?;
+    let after = query_value(query, "after")
+        .as_deref()
+        .unwrap_or("0")
+        .parse::<u64>()
+        .context("parse thread items after cursor")?;
+    let project_path = resolve_project_arg(Path::new(&project))?;
+    let items = atelier_core::thread_items::read_thread_items(&project_path, thread, after)?;
+    Ok(thread_item_list_json(items))
+}
+
+fn gateway_create_thread_items_json(
+    route: &str,
+    query: &str,
+    request: ThreadItemCreateRequest,
+) -> Result<serde_json::Value> {
+    let project =
+        query_value(query, "project").context("thread items endpoint requires project")?;
+    let thread = thread_id_from_route(route, "/items")?;
+    let project_path = resolve_project_arg(Path::new(&project))?;
+    let mut created = Vec::new();
+    for input in request.items {
+        let mut metadata = input.metadata;
+        metadata.insert(
+            "project".to_string(),
+            serde_json::Value::String(project.clone()),
+        );
+        metadata.insert(
+            "thread".to_string(),
+            serde_json::Value::String(thread.to_string()),
+        );
+        let content = input
+            .content
+            .into_iter()
+            .map(|content| atelier_core::thread_items::ThreadItemContent {
+                content_type: content.content_type,
+                text: content.text,
+            })
+            .collect();
+        created.push(atelier_core::thread_items::append_thread_item(
+            &project_path,
+            thread,
+            &input.item_type,
+            &input.role,
+            content,
+            metadata,
+        )?);
+    }
+    Ok(thread_item_list_json(created))
+}
+
+fn thread_item_list_json(items: Vec<atelier_core::thread_items::ThreadItem>) -> serde_json::Value {
+    let first_id = items.first().map(|item| item.id.clone());
+    let last_id = items.last().map(|item| item.id.clone());
+    serde_json::json!({
+        "object": "list",
+        "data": items,
+        "first_id": first_id,
+        "last_id": last_id,
+        "has_more": false
+    })
+}
+
+fn read_thread_metadata(
+    project_path: &Path,
+    thread_id: &str,
+) -> Result<atelier_core::thread::ThreadMetadata> {
+    let metadata_path =
+        atelier_core::thread::thread_dir(project_path, thread_id).join("thread.toml");
+    let content = std::fs::read_to_string(&metadata_path)
+        .with_context(|| format!("read {}", metadata_path.display()))?;
+    toml::from_str(&content).context("parse thread metadata")
 }
 
 fn gateway_status_json() -> Result<serde_json::Value> {
