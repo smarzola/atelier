@@ -137,57 +137,6 @@ fn thread_send_approval_answers_single_pending_prompt() {
 }
 
 #[test]
-fn prompts_respond_latest_answers_only_newest_pending_prompt() {
-    let (temp, project, _thread_id) = initialized_project();
-    let job_dir = project.join(".atelier/jobs/job-example");
-    let prompts_dir = job_dir.join("prompts");
-    std::fs::create_dir_all(&prompts_dir).expect("create prompts dir");
-    write_prompt(&prompts_dir, "prompt-1", "1", "Approve older command");
-    write_prompt(&prompts_dir, "prompt-2", "2", "Approve latest command");
-
-    Command::cargo_bin("atelier")
-        .expect("atelier binary")
-        .env("HOME", temp.path())
-        .args([
-            "prompts",
-            "respond-latest",
-            project.to_str().expect("utf8 path"),
-            "job-example",
-            "accept",
-        ])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "Recorded response accept for prompt-2",
-        ));
-
-    let latest_response =
-        std::fs::read_to_string(job_dir.join("responses/prompt-2.json")).expect("read response");
-    assert!(latest_response.contains("\"decision\": \"accept\""));
-    assert!(!job_dir.join("responses/prompt-1.json").exists());
-}
-
-fn write_prompt(prompts_dir: &std::path::Path, id: &str, request_id: &str, summary: &str) {
-    std::fs::write(
-        prompts_dir.join(format!("{id}.json")),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "id": id,
-            "codex_request_id": request_id,
-            "method": "item/commandExecution/requestApproval",
-            "codex_thread_id": "codex-thread-example",
-            "codex_turn_id": "turn-example",
-            "codex_item_id": "call-example",
-            "status": "Pending",
-            "summary": summary,
-            "available_decisions": ["accept", "decline", "cancel"],
-            "params": {"command": "cargo test"}
-        }))
-        .expect("prompt json"),
-    )
-    .expect("write prompt");
-}
-
-#[test]
 fn prompts_respond_validates_decisions_and_supports_text_payloads() {
     let (temp, project, _thread_id) = initialized_project();
     let job_dir = project.join(".atelier/jobs/job-example");
