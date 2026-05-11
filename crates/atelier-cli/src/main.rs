@@ -1985,7 +1985,15 @@ fn gateway_status_json() -> Result<serde_json::Value> {
             jobs.push(status);
         }
     }
+    let executable = std::env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|error| format!("unavailable: {error}"));
     Ok(serde_json::json!({
+        "daemon": {
+            "version": env!("CARGO_PKG_VERSION"),
+            "executable": executable,
+            "worker_command": "__managed-worker"
+        },
         "projects": projects.len(),
         "active_jobs": jobs.iter().filter(|status| status.status == "running" || status.status == "waiting-for-prompt").count(),
         "waiting_prompts": waiting_prompts,
