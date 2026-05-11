@@ -15,10 +15,10 @@ The alpha currently supports:
 - project initialization with automatic registry aliases;
 - daemon-managed `atelier work`;
 - dry-runs without a daemon;
-- threads, jobs, prompts, recovery, and session lineage;
+- thread item streams, internal jobs/prompts, recovery, and session lineage;
 - a loopback-first daemon HTTP API;
 - generic gateway events;
-- a Telegram daemon gateway with webhook setup, secret validation, inbound update routing, outbound Bot API `sendMessage`, job-start acknowledgements, bounded progress delivery, and final results.
+- a Telegram daemon gateway with webhook setup, secret validation, inbound update routing, outbound Bot API `sendMessage`, and bounded item-stream delivery for approvals and final results.
 
 Release archives are built only for:
 
@@ -39,7 +39,16 @@ npm i -g @openai/codex
 codex login
 ```
 
-Install Atelier from a release archive when available, or build it from source:
+Install Atelier from a release archive, or build it from source:
+
+```bash
+# Linux x86_64 example. Pick the archive that matches your platform from GitHub Releases.
+curl -L https://github.com/smarzola/atelier/releases/download/v0.1.0-alpha.1/atelier-x86_64-unknown-linux-gnu.tar.gz -o atelier.tar.gz
+tar -xzf atelier.tar.gz
+sudo install -m 0755 atelier-x86_64-unknown-linux-gnu/atelier /usr/local/bin/atelier
+```
+
+Or build from source:
 
 ```bash
 git clone https://github.com/smarzola/atelier.git
@@ -124,10 +133,15 @@ atelier thread send hello-world \
 `atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand, but thread-native send/follow is the preferred ongoing workflow. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer. Thread events are bounded: Atelier records lifecycle events, prompt notifications, coalesced agent-message snapshots, and final results rather than streaming token-by-token updates. Inspect it from the CLI:
 
 ```bash
+atelier thread follow hello-world --thread "$THREAD" --after 0
+```
+
+Jobs and prompt records remain inspectable as debug/internal artifacts when needed:
+
+```bash
 atelier jobs list hello-world
 atelier jobs show hello-world <job-id>
 atelier prompts inbox
-atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
 If Codex needs approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval through the thread:
@@ -147,28 +161,25 @@ curl -s http://127.0.0.1:8787/health
 curl -s http://127.0.0.1:8787/projects
 ```
 
-Start work through the API instead of the CLI:
+Append a user message directly to the product-facing thread item stream:
 
 ```bash
-curl -s http://127.0.0.1:8787/work \
+curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world" \
   -H 'Content-Type: application/json' \
-  -d "{\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
+  -d '{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello through the item API"}],"metadata":{"person":"alice","source":"api"}}]}'
 ```
 
-List and answer prompts:
+Read the thread item stream:
 
 ```bash
-curl -s http://127.0.0.1:8787/prompts
-
-curl -s http://127.0.0.1:8787/prompts/respond \
-  -H 'Content-Type: application/json' \
-  -d '{"project":"hello-world","prompt_id":"prompt-0","decision":"accept"}'
+curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world&after=0"
 ```
 
-Then check job status and the file Codex created:
+For compatibility/debugging, `/work`, `/jobs`, `/prompts`, and `/prompts/respond` remain available, but normal clients should prefer thread messages/items.
+
+Then check the file Codex created and session lineage:
 
 ```bash
-curl -s http://127.0.0.1:8787/jobs
 cat ~/hello-world/HELLO.md
 atelier sessions hello-world --thread "$THREAD"
 ```

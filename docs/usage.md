@@ -33,11 +33,19 @@ npm i -g @openai/codex
 codex login
 ```
 
-Install Atelier from a GitHub Release archive when available. Release tags currently build only:
+Install Atelier from a GitHub Release archive. Release tags currently build only:
 
 - `aarch64-apple-darwin` for macOS Apple Silicon;
 - `aarch64-unknown-linux-gnu` for Linux ARM64;
 - `x86_64-unknown-linux-gnu` for Linux x86_64.
+
+Linux x86_64 archive example:
+
+```bash
+curl -L https://github.com/smarzola/atelier/releases/download/v0.1.0-alpha.1/atelier-x86_64-unknown-linux-gnu.tar.gz -o atelier.tar.gz
+tar -xzf atelier.tar.gz
+sudo install -m 0755 atelier-x86_64-unknown-linux-gnu/atelier /usr/local/bin/atelier
+```
 
 To build from source:
 
@@ -211,12 +219,22 @@ That creates starter project files, registers the alias, and appends a gateway a
 
 A running daemon reads the registry from disk on each request. Projects created by the CLI or API are visible without restarting the daemon.
 
-### Start work through the API
+### Send thread items through the API
+
+Create a product-facing thread item:
 
 ```bash
-curl -s http://127.0.0.1:8787/work \
+curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world" \
   -H 'Content-Type: application/json' \
-  -d "{\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
+  -d '{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello through the item API"}],"metadata":{"person":"alice","source":"api"}}]}'
+```
+
+Submit a message to the managed work path when you want Codex to act on it:
+
+```bash
+curl -s http://127.0.0.1:8787/events/message \
+  -H 'Content-Type: application/json' \
+  -d "{\"gateway\":\"example-gateway\",\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
 ```
 
 ### Thread items, jobs, and prompts through the API
@@ -334,7 +352,7 @@ curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 ```
 
-Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. When a Telegram update starts a job, Atelier acknowledges the update by sending a Bot API `sendMessage` back to the same chat/topic with the started job id. When the job completes, Atelier reads the shared thread event stream, coalesces progress to a bounded set of useful messages, publishes prompt/progress/final output back to the same Telegram chat/topic, and advances delivery cursors to avoid duplicate sends.
+Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. Telegram delivery reads the shared thread item stream, publishes user-facing approval requests and final assistant output back to the same chat/topic, and advances delivery cursors to avoid duplicate sends. Internal job ids and raw event names are not part of normal Telegram delivery.
 
 Send a Telegram message through the Bot API:
 
@@ -346,7 +364,15 @@ curl -s http://127.0.0.1:8787/adapters/telegram/send-message \
 
 ## Dogfood verification
 
-The thread-native flow was dogfooded against a temporary mock project with a fake Codex app-server on `PATH`. Two `atelier thread send` interactions in the same thread produced the shared CLI/API event stream (`job_started`, `agent_message_snapshot`, `final_result`, `job_succeeded`), recorded Codex session lineage, and wrote a project artifact. This verifies that CLI send/follow, daemon work submission, API event polling, Codex app-server lineage, and project-local artifacts all operate through the same thread model.
+The thread-native flow was dogfooded against a temporary mock project with a fake Codex app-server on `PATH`. A direct `POST /threads/<thread>/items` call and an `atelier thread send` call produced one shared conversation item stream:
+
+```text
+1	message	user	hello item api
+2	message	user	run dogfood task
+3	message	assistant	dogfood done
+```
+
+This verifies that CLI send/follow, daemon item APIs, Codex app-server output translation, and project-local artifacts operate through the same thread item model. Normal `atelier thread send` output is item-facing (`Status`, `Item`, `Sequence`) and does not print internal job ids or job directories unless explicit debug output is requested.
 
 ## Codex-native skills and MCP
 

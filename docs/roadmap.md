@@ -12,7 +12,7 @@ Next alpha work focuses on hardening the daemonized runtime and release readines
 - [x] Daemon command and daemon-hosted HTTP gateway.
 - [x] Daemon-owned work submission.
 - [x] CLI work submits to the daemon instead of spawning workers directly.
-- [x] Prompt/completion notifications from daemon to gateways.
+- [x] Prompt/completion notifications from daemon to gateways via thread items.
 - [x] OpenAI-style conversation item interface for threads: `docs/plans/0007-openai-style-thread-items.md`.
 - [ ] Better session indexing.
 - [ ] Shared-project access controls.
@@ -97,7 +97,6 @@ Implemented capabilities:
 
 Remaining capabilities:
 
-- send prompt/completion notifications to gateway threads;
 - expose richer thread, session list, and resume APIs through the daemon;
 - harden access control for shared projects.
 
@@ -142,7 +141,7 @@ Expected behavior:
 - [x] Add cross-project prompt inbox.
 - [x] Add project-scoped bulk recovery for idle-timeout and worker-lost jobs.
 - [x] Bootstrap an Atelier home workspace with starter Codex-native skills.
-- [x] Add generic local HTTP gateway with health/status/jobs/prompts/respond/message endpoints.
+- [x] Add generic local HTTP gateway with health/status/thread item/jobs/prompts/respond/message endpoints.
 - [x] Add gateway person bindings and external-thread routing for message events.
 - [x] Default the HTTP gateway to loopback-only and support bearer-token authentication for adapter/reverse-proxy use.
 - [x] Add an initial Telegram webhook adapter that translates message updates into generic gateway events.
@@ -152,7 +151,7 @@ Expected behavior:
 - [x] Host gateway endpoints inside the daemon.
 - [x] Add daemon-owned `/work` submission endpoint.
 - [x] Route `atelier work` through the daemon by default.
-- [x] Prompt/completion notifications from daemon to gateways.
+- [x] Prompt/completion notifications from daemon to gateways via thread items.
 - [ ] Access control for shared projects.
 - [ ] Better session indexing.
 - [x] Packaging workflow for macOS Apple Silicon, Linux ARM64, and Linux x86_64.
