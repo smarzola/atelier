@@ -394,6 +394,8 @@ atelier jobs recover hello-world --all-idle
 atelier jobs recover hello-world --all-worker-lost
 ```
 
+Writer-slot checks reconcile persisted worker metadata before refusing new work. If a previous `running` or `waiting-for-prompt` job has a dead worker process, the daemon marks it `worker-lost` and lets the next `/events/message` or `/work` request start normally instead of queueing behind a stale owner. If a live job still owns the writer slot, the error points you to `/jobs` or `atelier jobs list <project>` so you can inspect the active job before recovering or waiting.
+
 ## Audit logs
 
 Gateway-originated actions append JSON Lines events to:

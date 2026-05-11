@@ -152,7 +152,7 @@ atelier jobs recover <project-or-alias> --all-idle
 atelier jobs recover <project-or-alias> --all-worker-lost
 ```
 
-Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
+Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list`, daemon `/jobs`, daemon supervision, and writer-slot checks reconcile `running` or `waiting-for-prompt` jobs with worker metadata and mark jobs `worker-lost` when their worker process is gone. A stale `worker-lost` job does not keep owning the project writer slot, so the next gateway `/events/message` or daemon `/work` request can start after reconciliation instead of getting stuck behind dead state.
 
 Gateway-originated actions append JSON Lines audit events to `~/.atelier/gateway/audit.jsonl` or `$ATELIER_HOME/gateway/audit.jsonl`. The audit log records prompt responses and message-start actions with gateway identifiers, resolved project/thread/person values, job or prompt ids, result, and a Unix timestamp while keeping the project folder as the source of project knowledge.
 

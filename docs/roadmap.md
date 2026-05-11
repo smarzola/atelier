@@ -131,6 +131,7 @@ Expected behavior:
 - [x] List multiple jobs in one project.
 - [x] Recover idle jobs from saved job context.
 - [x] Reconcile running jobs whose worker process has disappeared.
+- [x] Reconcile stale worker state during gateway writer-slot checks so dead jobs do not block new work.
 - [x] Record Codex app-server thread/session metadata in Atelier thread lineage.
 - [x] Enforce a conservative single-writer work policy per project.
 - [x] Validate prompt response decisions and support text/JSON payload responses.
