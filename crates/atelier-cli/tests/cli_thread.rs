@@ -55,7 +55,7 @@ fn thread_new_creates_thread_and_threads_list_shows_it() {
 }
 
 #[test]
-fn thread_send_submits_to_daemon_and_thread_follow_reads_events() {
+fn thread_send_submits_to_daemon_and_thread_follow_reads_items() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_project(&temp, &project);
@@ -99,11 +99,11 @@ fn thread_send_submits_to_daemon_and_thread_follow_reads_events() {
         .success()
         .stdout(predicate::str::contains("Status: started"));
 
-    let events_path = project
+    let items_path = project
         .join(".atelier/threads")
         .join(&thread_id)
-        .join("events.jsonl");
-    wait_for_file_contains(&events_path, "final_result");
+        .join("items.jsonl");
+    wait_for_file_contains(&items_path, "thread send done");
 
     Command::cargo_bin("atelier")
         .expect("atelier")
@@ -120,8 +120,11 @@ fn thread_send_submits_to_daemon_and_thread_follow_reads_events() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("final_result"))
-        .stdout(predicate::str::contains("thread send done"));
+        .stdout(predicate::str::contains("1\tmessage\tuser\tWrite a result"))
+        .stdout(predicate::str::contains(
+            "message\tassistant\tthread send done",
+        ))
+        .stdout(predicate::str::contains("final_result").not());
 
     let _ = daemon.kill();
 }

@@ -596,12 +596,20 @@ fn main() -> Result<()> {
                     after,
                 } => {
                     let project_path = resolve_project_arg(&project_path)?;
-                    for event in atelier_core::thread_events::read_thread_events(
+                    for item in atelier_core::thread_items::read_thread_items(
                         &project_path,
                         &thread,
                         after,
                     )? {
-                        println!("{}\t{}\t{}", event.sequence, event.kind, event.payload);
+                        let text = item
+                            .content
+                            .first()
+                            .map(|content| content.text.as_str())
+                            .unwrap_or("");
+                        println!(
+                            "{}\t{}\t{}\t{}",
+                            item.sequence, item.item_type, item.role, text
+                        );
                     }
                 }
             }
