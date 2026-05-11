@@ -345,21 +345,6 @@ enum PromptsCommand {
         /// Decision to record.
         decision: String,
     },
-    /// Record a response for the newest pending prompt in one job.
-    RespondLatest {
-        /// Project folder path.
-        project_path: PathBuf,
-        /// Job id whose newest pending prompt should be answered.
-        job_id: String,
-        /// Optional text answer for user-input or elicitation prompts.
-        #[arg(long)]
-        text: Option<String>,
-        /// Optional JSON response object to forward to Codex.
-        #[arg(long)]
-        json: Option<String>,
-        /// Decision to record.
-        decision: String,
-    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -748,19 +733,20 @@ fn main() -> Result<()> {
                 decision,
             } => {
                 let project_path = resolve_project_arg(&project_path)?;
-                respond_to_prompt(&project_path, &prompt_id, &decision, text, json)?;
-                println!("Recorded response {decision} for {prompt_id}");
-            }
-            PromptsCommand::RespondLatest {
-                project_path,
-                job_id,
-                text,
-                json,
-                decision,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                let prompt_id = latest_pending_prompt_id_for_job(&project_path, &job_id)?;
-                respond_to_prompt(&project_path, &prompt_id, &decision, text, json)?;
+                let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
+                let response = build_prompt_response(&prompt, &decision, text, json)?;
+                prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
+                let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
+                std::fs::write(
+                    prompt_path,
+                    serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
+                )?;
+                let responses_dir = job_dir.join("responses");
+                std::fs::create_dir_all(&responses_dir)?;
+                std::fs::write(
+                    responses_dir.join(format!("{}.json", prompt.id)),
+                    serde_json::to_string_pretty(&response)?,
+                )?;
                 println!("Recorded response {decision} for {prompt_id}");
             }
         },
@@ -2000,24 +1986,12 @@ fn gateway_status_json() -> Result<serde_json::Value> {
         }
     }
     Ok(serde_json::json!({
-        "daemon": daemon_runtime_json(),
         "projects": projects.len(),
         "active_jobs": jobs.iter().filter(|status| status.status == "running" || status.status == "waiting-for-prompt").count(),
         "waiting_prompts": waiting_prompts,
         "worker_lost_jobs": jobs.iter().filter(|status| status.status == "worker-lost").count(),
         "idle_timeout_jobs": jobs.iter().filter(|status| status.status == "idle-timeout").count(),
     }))
-}
-
-fn daemon_runtime_json() -> serde_json::Value {
-    serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "executable": std::env::current_exe()
-            .ok()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-        "worker_command": "__managed-worker",
-    })
 }
 
 fn gateway_projects_json() -> Result<serde_json::Value> {
@@ -2032,39 +2006,16 @@ fn gateway_jobs_json() -> Result<serde_json::Value> {
     let mut jobs = Vec::new();
     for project in atelier_core::registry::list_projects()? {
         for status in list_jobs(&project.path)? {
-            let recovery_hint = recovery_hint_for_job(&project.name, &status);
             jobs.push(serde_json::json!({
                 "project": project.name,
                 "id": status.id,
                 "status": status.status,
                 "thread_id": status.thread_id,
                 "person": status.person,
-                "recovery_hint": recovery_hint,
             }));
         }
     }
     Ok(serde_json::json!({"jobs": jobs}))
-}
-
-fn recovery_hint_for_job(
-    project_name: &str,
-    status: &atelier_core::job::JobStatus,
-) -> Option<String> {
-    match status.status.as_str() {
-        "worker-lost" => Some(format!(
-            "Run `atelier jobs recover {project_name} {}` or `atelier jobs recover {project_name} --all-worker-lost`.",
-            status.id
-        )),
-        "idle-timeout" => Some(format!(
-            "Run `atelier jobs recover {project_name} {}` or `atelier jobs recover {project_name} --all-idle`.",
-            status.id
-        )),
-        "running" | "waiting-for-prompt" => Some(format!(
-            "This job owns the project writer slot. Inspect with `atelier jobs show {project_name} {}` before starting another writer.",
-            status.id
-        )),
-        _ => None,
-    }
 }
 
 fn gateway_prompts_json() -> Result<serde_json::Value> {
@@ -2095,38 +2046,6 @@ fn normalize_thread_prompt_decision(text: &str) -> Result<String> {
             "thread prompt replies support approve/accept/yes, decline/deny/no, or cancel; got {other}"
         ),
     }
-}
-
-fn latest_pending_prompt_id_for_job(project_path: &Path, job_id: &str) -> Result<String> {
-    let prompts_dir = project_path
-        .join(".atelier/jobs")
-        .join(job_id)
-        .join("prompts");
-    let mut prompts = Vec::new();
-    for prompt_entry in std::fs::read_dir(&prompts_dir)
-        .with_context(|| format!("read {}", prompts_dir.display()))?
-    {
-        let path = prompt_entry?.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-            continue;
-        }
-        let prompt: atelier_core::codex_app_server::PendingPrompt = serde_json::from_str(
-            &std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?,
-        )
-        .with_context(|| format!("parse {}", path.display()))?;
-        if prompt.status == atelier_core::codex_app_server::PendingPromptStatus::Pending {
-            prompts.push(prompt);
-        }
-    }
-    prompts.sort_by(|left, right| {
-        left.codex_request_id
-            .cmp(&right.codex_request_id)
-            .then(left.id.cmp(&right.id))
-    });
-    prompts
-        .last()
-        .map(|prompt| prompt.id.clone())
-        .with_context(|| format!("no pending prompts found for job {job_id}"))
 }
 
 fn respond_to_prompt(
