@@ -1334,13 +1334,9 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
             handle_gateway_message_event(event)?
         }
         ("POST", "/adapters/telegram/update") => {
-            let metadata = telegram_update_metadata(&body)?;
+            let _metadata = telegram_update_metadata(&body)?;
             let event = telegram_update_to_gateway_event(&body)?;
-            let response = handle_gateway_message_event(event)?;
-            if let Some(job_id) = response.get("job_id").and_then(serde_json::Value::as_str) {
-                let _ = telegram_acknowledge_job_start(&auth.telegram, &metadata, job_id);
-            }
-            response
+            handle_gateway_message_event(event)?
         }
         ("POST", "/adapters/telegram/webhook/setup") => telegram_set_webhook(&auth.telegram)?,
         ("POST", "/adapters/telegram/send-message") => {
@@ -1413,29 +1409,6 @@ fn telegram_send_message(
         "result": "sent"
     }))?;
     Ok(serde_json::json!({"status":"sent","result":result}))
-}
-
-fn telegram_acknowledge_job_start(
-    config: &TelegramConfig,
-    metadata: &TelegramUpdateMetadata,
-    job_id: &str,
-) -> Result<()> {
-    telegram_send_message_body(
-        config,
-        serde_json::json!(metadata.chat_id),
-        metadata
-            .message_thread_id
-            .as_ref()
-            .map(|thread_id| serde_json::json!(thread_id)),
-        None,
-        format!("Atelier started job {job_id}."),
-    )?;
-    append_gateway_audit_event(serde_json::json!({
-        "action": "telegram_job_acknowledgement",
-        "job_id": job_id,
-        "result": "sent"
-    }))?;
-    Ok(())
 }
 
 fn telegram_send_message_body(

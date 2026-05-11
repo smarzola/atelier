@@ -369,12 +369,13 @@ fn daemon_run_sends_telegram_messages_through_bot_api() {
 
 #[test]
 fn daemon_run_acknowledges_telegram_update_job_start() {
-    telegram_update_job_start_with_fake_codex("daemon done", 2, |bodies, job_id| {
+    telegram_update_job_start_with_fake_codex("daemon done", 1, |bodies, _job_id| {
         assert!(
-            bodies
-                .iter()
-                .any(|body| body["text"].as_str().expect("ack text").contains(job_id)),
-            "one Telegram message should include job id: {bodies:?}"
+            bodies.iter().all(|body| !body["text"]
+                .as_str()
+                .expect("message text")
+                .contains("job-")),
+            "Telegram delivery should use product-facing item text, not job acknowledgements: {bodies:?}"
         );
         let final_body = bodies
             .iter()
@@ -389,13 +390,14 @@ fn daemon_run_acknowledges_telegram_update_job_start() {
 fn daemon_run_coalesces_telegram_progress_before_final_result() {
     telegram_update_job_start_with_fake_codex(
         "progress: drafting|daemon done|daemon done",
-        2,
-        |bodies, job_id| {
+        1,
+        |bodies, _job_id| {
             assert!(
-                bodies
-                    .iter()
-                    .any(|body| body["text"].as_str().expect("ack text").contains(job_id)),
-                "one Telegram message should include job id: {bodies:?}"
+                bodies.iter().all(|body| !body["text"]
+                    .as_str()
+                    .expect("message text")
+                    .contains("job-")),
+                "Telegram delivery should use product-facing item text, not job acknowledgements: {bodies:?}"
             );
             assert!(
                 bodies
