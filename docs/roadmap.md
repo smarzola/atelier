@@ -13,6 +13,7 @@ Next alpha work focuses on hardening the daemonized runtime and release readines
 - [x] Daemon-owned work submission.
 - [x] CLI work submits to the daemon instead of spawning workers directly.
 - [x] Prompt/completion notifications from daemon to gateways.
+- [ ] OpenAI-style conversation item interface for threads: `docs/plans/0007-openai-style-thread-items.md`.
 - [ ] Better session indexing.
 - [ ] Shared-project access controls.
 
