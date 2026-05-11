@@ -248,24 +248,32 @@ fn daemon_message_endpoint_starts_after_dead_worker_without_waiting_for_supervis
 
     let items = atelier_core::thread_items::read_thread_items(&project, &thread_id, 0)
         .expect("read thread items");
-    assert_eq!(items.len(), 1);
-    assert_eq!(items[0].item_type, "message");
-    assert_eq!(items[0].role, "user");
-    assert_eq!(items[0].content[0].content_type, "input_text");
-    assert_eq!(items[0].content[0].text, "Run after stale worker");
+    let user_item = items
+        .iter()
+        .find(|item| item.role == "user")
+        .expect("user message item");
+    assert_eq!(user_item.item_type, "message");
+    assert_eq!(user_item.content[0].content_type, "input_text");
+    assert_eq!(user_item.content[0].text, "Run after stale worker");
     assert_eq!(
-        items[0]
+        user_item
             .metadata
             .get("source")
             .and_then(|value| value.as_str()),
         Some("example-gateway")
     );
     assert_eq!(
-        items[0]
+        user_item
             .metadata
             .get("job_id")
             .and_then(|value| value.as_str()),
         response["job_id"].as_str()
+    );
+    assert!(
+        items.iter().any(|item| item.role == "assistant"
+            && item.content[0].content_type == "output_text"
+            && item.content[0].text == "daemon done"),
+        "assistant final result should be a thread item: {items:?}"
     );
 
     let jobs = get_json(port, "/jobs");
@@ -484,7 +492,27 @@ fn telegram_update_job_start_with_fake_codex(
     }
     assert_bodies(&bodies, job_id);
 
+    let items = atelier_core::thread_items::read_thread_items(&project, &thread_id, 0)
+        .expect("read thread items");
+    assert!(
+        items.iter().any(|item| item.item_type == "message"
+            && item.role == "user"
+            && item.content[0].text == "Run Telegram task"),
+        "gateway input should be recorded as a user conversation item: {items:?}"
+    );
+    assert!(
+        items.iter().any(|item| item.item_type == "message"
+            && item.role == "assistant"
+            && item.content[0].content_type == "output_text"
+            && item.content[0].text == last_fake_message(fake_messages)),
+        "final assistant output should be recorded as a conversation item: {items:?}"
+    );
+
     let _ = daemon.kill();
+}
+
+fn last_fake_message(fake_messages: &str) -> &str {
+    fake_messages.split('|').last().unwrap_or(fake_messages)
 }
 
 fn wait_for_job_success(project: &std::path::Path, job_id: &str) {

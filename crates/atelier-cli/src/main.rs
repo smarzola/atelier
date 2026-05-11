@@ -2706,6 +2706,7 @@ fn run_managed_worker(
         }
         if message_method(trimmed).as_deref() == Some("turn/completed") {
             append_final_result_event(job_dir, thread)?;
+            append_final_result_item(job_dir, thread)?;
             write_job_status(job_dir, "succeeded", thread, person)?;
             publish_telegram_bounded_progress(job_dir, thread)?;
             if let Some(project_path) = project_path_from_job_dir(job_dir) {
@@ -2881,11 +2882,8 @@ fn append_final_result_event(job_dir: &Path, thread: &str) -> Result<()> {
     let Some(project_path) = project_path_from_job_dir(job_dir) else {
         return Ok(());
     };
-    let result_path = job_dir.join("result.md");
-    let text = match std::fs::read_to_string(&result_path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error).with_context(|| format!("read {}", result_path.display())),
+    let Some(text) = read_job_result_text(job_dir)? else {
+        return Ok(());
     };
     atelier_core::thread_events::append_thread_event(
         &project_path,
@@ -2895,6 +2893,35 @@ fn append_final_result_event(job_dir: &Path, thread: &str) -> Result<()> {
         serde_json::json!({"text": text}),
     )?;
     Ok(())
+}
+
+fn append_final_result_item(job_dir: &Path, thread: &str) -> Result<()> {
+    let Some(project_path) = project_path_from_job_dir(job_dir) else {
+        return Ok(());
+    };
+    let Some(text) = read_job_result_text(job_dir)? else {
+        return Ok(());
+    };
+    atelier_core::thread_items::append_assistant_message_item(
+        &project_path,
+        thread,
+        &text,
+        serde_json::json!({
+            "source": "codex",
+            "job_id": job_id_from_dir(job_dir),
+            "event": "final_result"
+        }),
+    )?;
+    Ok(())
+}
+
+fn read_job_result_text(job_dir: &Path) -> Result<Option<String>> {
+    let result_path = job_dir.join("result.md");
+    match std::fs::read_to_string(&result_path) {
+        Ok(text) => Ok(Some(text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).with_context(|| format!("read {}", result_path.display())),
+    }
 }
 
 fn write_job_status(job_dir: &Path, status: &str, thread: &str, person: &str) -> Result<()> {
