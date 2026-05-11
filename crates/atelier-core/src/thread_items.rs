@@ -140,6 +140,24 @@ pub fn read_thread_items(
     Ok(items)
 }
 
+pub fn rewrite_thread_items(
+    project_path: &Path,
+    thread_id: &str,
+    items: &[ThreadItem],
+) -> Result<()> {
+    let items_path = items_path(project_path, thread_id);
+    if let Some(parent) = items_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let mut file = fs::File::create(&items_path)
+        .with_context(|| format!("rewrite {}", items_path.display()))?;
+    for item in items {
+        serde_json::to_writer(&mut file, item).context("write thread item")?;
+        file.write_all(b"\n").context("terminate thread item")?;
+    }
+    Ok(())
+}
+
 fn items_path(project_path: &Path, thread_id: &str) -> std::path::PathBuf {
     thread_dir(project_path, thread_id).join("items.jsonl")
 }

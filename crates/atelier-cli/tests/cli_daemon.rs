@@ -234,8 +234,39 @@ fn daemon_message_endpoint_starts_after_dead_worker_without_waiting_for_supervis
         response["status"], "started",
         "dead worker should not keep owning the thread/project writer slot: {response}"
     );
+    assert_eq!(
+        response["item_id"]
+            .as_str()
+            .expect("item id")
+            .starts_with("item-"),
+        true
+    );
+    assert_eq!(response["sequence"], 1);
+    assert_eq!(response["debug"]["job_id"], response["job_id"]);
     wait_for_job_status(&project, "job-dead-worker", "worker-lost");
     wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+
+    let items = atelier_core::thread_items::read_thread_items(&project, &thread_id, 0)
+        .expect("read thread items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].item_type, "message");
+    assert_eq!(items[0].role, "user");
+    assert_eq!(items[0].content[0].content_type, "input_text");
+    assert_eq!(items[0].content[0].text, "Run after stale worker");
+    assert_eq!(
+        items[0]
+            .metadata
+            .get("source")
+            .and_then(|value| value.as_str()),
+        Some("example-gateway")
+    );
+    assert_eq!(
+        items[0]
+            .metadata
+            .get("job_id")
+            .and_then(|value| value.as_str()),
+        response["job_id"].as_str()
+    );
 
     let jobs = get_json(port, "/jobs");
     let dead_worker = jobs["jobs"]

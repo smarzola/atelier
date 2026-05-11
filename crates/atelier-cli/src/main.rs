@@ -1610,6 +1610,7 @@ struct ThreadMessageRuntimeRequest {
 }
 
 fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
+    let user_item = append_runtime_user_message_item(&request, None)?;
     let decision = atelier_core::thread_interaction::decide_thread_interaction(
         &request.project_path,
         &request.thread,
@@ -1625,32 +1626,43 @@ fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_j
                 &request.person,
                 &request.text,
             )?;
-            Ok(serde_json::json!({
-                "status":"queued",
-                "job_id":job_id,
-                "queued_sequence":queued.sequence,
-                "project":request.project,
-                "thread":request.thread,
-                "person":request.person
-            }))
+            Ok(with_thread_item_response_fields(
+                serde_json::json!({
+                    "status":"queued",
+                    "job_id":job_id,
+                    "queued_sequence":queued.sequence,
+                    "project":request.project,
+                    "thread":request.thread,
+                    "person":request.person,
+                    "debug":{"job_id":job_id}
+                }),
+                &user_item,
+            ))
         }
         atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt { prompt_id } => {
-            Ok(serde_json::json!({
-                "status":"prompt-reply-required",
-                "prompt_id":prompt_id,
-                "project":request.project,
-                "thread":request.thread,
-                "person":request.person
-            }))
+            Ok(with_thread_item_response_fields(
+                serde_json::json!({
+                    "status":"prompt-reply-required",
+                    "prompt_id":prompt_id,
+                    "project":request.project,
+                    "thread":request.thread,
+                    "person":request.person,
+                    "debug":{"prompt_id":prompt_id}
+                }),
+                &user_item,
+            ))
         }
         atelier_core::thread_interaction::ThreadInteractionDecision::ContinueSession { .. }
         | atelier_core::thread_interaction::ThreadInteractionDecision::StartJob => {
-            start_thread_message_job(request)
+            start_thread_message_job(request, user_item)
         }
     }
 }
 
-fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
+fn start_thread_message_job(
+    request: ThreadMessageRuntimeRequest,
+    user_item: atelier_core::thread_items::ThreadItem,
+) -> Result<serde_json::Value> {
     ensure_project_writer_available(&request.project_path)?;
     let context = build_context(&request.person, &request.thread, &request.text)?;
     let job = atelier_core::job::create_job(
@@ -1684,14 +1696,109 @@ fn start_thread_message_job(request: ThreadMessageRuntimeRequest) -> Result<serd
         "job_id": job.id,
         "result": "started"
     }))?;
-    Ok(serde_json::json!({
-        "status":"started",
-        "job_id":job.id,
-        "job_dir":job.dir,
-        "project":request.project,
-        "thread":request.thread,
-        "person":request.person
-    }))
+    let mut metadata_update = serde_json::Map::new();
+    metadata_update.insert(
+        "job_id".to_string(),
+        serde_json::Value::String(job.id.clone()),
+    );
+    let user_item = update_thread_item_metadata(
+        &request.project_path,
+        &request.thread,
+        &user_item.id,
+        metadata_update,
+    )?
+    .unwrap_or(user_item);
+    Ok(with_thread_item_response_fields(
+        serde_json::json!({
+            "status":"started",
+            "job_id":job.id,
+            "job_dir":job.dir,
+            "project":request.project,
+            "thread":request.thread,
+            "person":request.person,
+            "debug":{"job_id":job.id}
+        }),
+        &user_item,
+    ))
+}
+
+fn append_runtime_user_message_item(
+    request: &ThreadMessageRuntimeRequest,
+    extra_metadata: Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<atelier_core::thread_items::ThreadItem> {
+    let mut metadata = extra_metadata.unwrap_or_default();
+    metadata.insert(
+        "project".to_string(),
+        serde_json::Value::String(request.project.clone()),
+    );
+    if let Some(gateway) = &request.gateway {
+        metadata.insert(
+            "source".to_string(),
+            serde_json::Value::String(gateway.clone()),
+        );
+    } else {
+        metadata.insert(
+            "source".to_string(),
+            serde_json::Value::String("daemon".to_string()),
+        );
+    }
+    if let Some(external_thread) = &request.external_thread {
+        metadata.insert(
+            "external_thread".to_string(),
+            serde_json::Value::String(external_thread.clone()),
+        );
+    }
+    if let Some(external_user) = &request.external_user {
+        metadata.insert(
+            "external_user".to_string(),
+            serde_json::Value::String(external_user.clone()),
+        );
+    }
+    let source = metadata
+        .get("source")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("daemon")
+        .to_string();
+    atelier_core::thread_items::append_user_message_item(
+        &request.project_path,
+        &request.thread,
+        &request.person,
+        &source,
+        &request.text,
+        serde_json::Value::Object(metadata),
+    )
+}
+
+fn update_thread_item_metadata(
+    project_path: &Path,
+    thread_id: &str,
+    item_id: &str,
+    metadata_update: serde_json::Map<String, serde_json::Value>,
+) -> Result<Option<atelier_core::thread_items::ThreadItem>> {
+    let mut items = atelier_core::thread_items::read_thread_items(project_path, thread_id, 0)?;
+    let Some(item) = items.iter_mut().find(|item| item.id == item_id) else {
+        return Ok(None);
+    };
+    for (key, value) in metadata_update {
+        item.metadata.insert(key, value);
+    }
+    let updated_item = item.clone();
+    atelier_core::thread_items::rewrite_thread_items(project_path, thread_id, &items)?;
+    Ok(Some(updated_item))
+}
+
+fn with_thread_item_response_fields(
+    mut response: serde_json::Value,
+    item: &atelier_core::thread_items::ThreadItem,
+) -> serde_json::Value {
+    if let Some(object) = response.as_object_mut() {
+        object.insert(
+            "item_id".to_string(),
+            serde_json::Value::String(item.id.clone()),
+        );
+        object.insert("sequence".to_string(), serde_json::json!(item.sequence));
+    }
+    response
 }
 
 fn persist_telegram_job_origin(job_dir: &Path, external_thread: Option<&str>) -> Result<()> {
