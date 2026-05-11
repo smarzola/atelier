@@ -374,11 +374,14 @@ List threads:
 atelier threads list hello-world
 ```
 
-Show global runtime state:
+Show global runtime state from the CLI or daemon:
 
 ```bash
 atelier status
+curl -s http://127.0.0.1:8787/status
 ```
+
+The daemon `/status` response includes a `daemon` object with the running Atelier executable path, version, and worker command. Check this after rebuilding during dogfood; if the path or version is not the binary you expect, restart the daemon before submitting more gateway work.
 
 Continue a Codex session through Atelier:
 

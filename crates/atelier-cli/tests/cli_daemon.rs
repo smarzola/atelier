@@ -99,6 +99,27 @@ fn daemon_run_hosts_gateway_health_endpoint() {
 }
 
 #[test]
+fn daemon_status_includes_runtime_version_and_executable() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port).spawn().expect("spawn daemon");
+    wait_for_health(port);
+
+    let status = get_json(port, "/status");
+    assert_eq!(status["daemon"]["version"], env!("CARGO_PKG_VERSION"));
+    assert!(
+        status["daemon"]["executable"]
+            .as_str()
+            .expect("daemon executable")
+            .contains("atelier"),
+        "daemon status should expose the running executable: {status}"
+    );
+    assert_eq!(status["daemon"]["worker_command"], "__managed-worker");
+
+    let _ = daemon.kill();
+}
+
+#[test]
 fn daemon_run_supervises_workers_by_default() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
