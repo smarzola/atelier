@@ -559,8 +559,17 @@ fn main() -> Result<()> {
                     atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt {
                         prompt_id,
                     } => {
+                        ensure_prompt_request_item(&resolved_project_path, &thread, &prompt_id)?;
                         let decision = normalize_thread_prompt_decision(&prompt)?;
                         respond_to_prompt(&resolved_project_path, &prompt_id, &decision, None, None)?;
+                        append_prompt_response_item(
+                            &resolved_project_path,
+                            &thread,
+                            &person,
+                            &prompt_id,
+                            &prompt,
+                            &decision,
+                        )?;
                         println!("Status: prompt-answered");
                         println!("Prompt: {prompt_id}");
                         println!("Decision: {decision}");
@@ -2308,6 +2317,81 @@ fn normalize_thread_prompt_decision(text: &str) -> Result<String> {
         other => anyhow::bail!(
             "thread prompt replies support approve/accept/yes, decline/deny/no, or cancel; got {other}"
         ),
+    }
+}
+
+fn ensure_prompt_request_item(project_path: &Path, thread: &str, prompt_id: &str) -> Result<()> {
+    let (_job_dir, prompt) = find_prompt(project_path, prompt_id)?;
+    let existing = atelier_core::thread_items::read_thread_items(project_path, thread, 0)?;
+    if existing.iter().any(|item| {
+        item.item_type == "atelier.approval_request"
+            && item
+                .metadata
+                .get("prompt_id")
+                .and_then(serde_json::Value::as_str)
+                == Some(prompt_id)
+    }) {
+        return Ok(());
+    }
+    let job_id = prompt_job_id(project_path, prompt_id)?;
+    atelier_core::thread_items::append_thread_item(
+        project_path,
+        thread,
+        "atelier.approval_request",
+        "assistant",
+        vec![atelier_core::thread_items::ThreadItemContent {
+            content_type: "output_text".to_string(),
+            text: format!("{}. Reply approve, decline, or cancel.", prompt.summary),
+        }],
+        metadata_map(serde_json::json!({
+            "source": "codex",
+            "job_id": job_id,
+            "prompt_id": prompt.id,
+            "method": prompt.method,
+            "choices": prompt.available_decisions
+        })),
+    )?;
+    Ok(())
+}
+
+fn append_prompt_response_item(
+    project_path: &Path,
+    thread: &str,
+    person: &str,
+    prompt_id: &str,
+    reply: &str,
+    decision: &str,
+) -> Result<()> {
+    let job_id = prompt_job_id(project_path, prompt_id)?;
+    atelier_core::thread_items::append_thread_item(
+        project_path,
+        thread,
+        "atelier.approval_response",
+        "user",
+        vec![atelier_core::thread_items::ThreadItemContent {
+            content_type: "input_text".to_string(),
+            text: reply.to_string(),
+        }],
+        metadata_map(serde_json::json!({
+            "source": "thread",
+            "person": person,
+            "job_id": job_id,
+            "prompt_id": prompt_id,
+            "decision": decision
+        })),
+    )?;
+    Ok(())
+}
+
+fn prompt_job_id(project_path: &Path, prompt_id: &str) -> Result<String> {
+    let (job_dir, _prompt) = find_prompt(project_path, prompt_id)?;
+    Ok(job_id_from_dir(&job_dir))
+}
+
+fn metadata_map(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    match value {
+        serde_json::Value::Object(map) => map,
+        _ => serde_json::Map::new(),
     }
 }
 
