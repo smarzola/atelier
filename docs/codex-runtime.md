@@ -145,6 +145,7 @@ atelier prompts inbox
 atelier prompts list <project-or-alias>
 atelier prompts show <project-or-alias> <prompt-id>
 atelier prompts respond <project-or-alias> <prompt-id> accept
+atelier prompts respond-latest <project-or-alias> <job-id> accept
 atelier prompts respond <project-or-alias> <prompt-id> answer --text "example answer"
 atelier prompts respond <project-or-alias> <prompt-id> accept --json '{"decision":"accept"}'
 atelier jobs recover <project-or-alias> <job-id>
@@ -152,7 +153,7 @@ atelier jobs recover <project-or-alias> --all-idle
 atelier jobs recover <project-or-alias> --all-worker-lost
 ```
 
-Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list` reconciles `running` or `waiting-for-prompt` jobs with worker metadata and marks jobs `worker-lost` when their worker process is gone.
+Workers support `--idle-timeout-seconds`. If a worker reaches idle timeout before a response or completion, it marks the job `idle-timeout`. `atelier jobs recover` restarts the worker from the saved job context. `atelier jobs list` and daemon `/jobs` reconcile `running` or `waiting-for-prompt` jobs with worker metadata and mark jobs `worker-lost` when their worker process is gone. Daemon `/jobs` includes recovery hints for stale jobs, and daemon `/status` includes the running executable path, version, and worker command so rebuild-related daemon/worker drift is visible.
 
 Gateway-originated actions append JSON Lines audit events to `~/.atelier/gateway/audit.jsonl` or `$ATELIER_HOME/gateway/audit.jsonl`. The audit log records prompt responses and message-start actions with gateway identifiers, resolved project/thread/person values, job or prompt ids, result, and a Unix timestamp while keeping the project folder as the source of project knowledge.
 

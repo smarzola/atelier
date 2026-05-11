@@ -154,6 +154,7 @@ Or use the explicit prompt commands when you need to inspect details or send str
 atelier prompts inbox
 atelier prompts show hello-world <prompt-id>
 atelier prompts respond hello-world <prompt-id> accept
+atelier prompts respond-latest hello-world <job-id> accept
 ```
 
 During a live dogfood run, Codex asked for file-change approval and then created this file:
@@ -393,6 +394,8 @@ atelier jobs recover hello-world <job-id>
 atelier jobs recover hello-world --all-idle
 atelier jobs recover hello-world --all-worker-lost
 ```
+
+The daemon `/status` response includes its running executable path, version, and worker command to help diagnose daemon/worker drift after local rebuilds. The `/jobs` response includes `recovery_hint` for `worker-lost`, `idle-timeout`, and currently active writer-slot jobs.
 
 ## Audit logs
 
