@@ -97,7 +97,9 @@ fn thread_send_submits_to_daemon_and_thread_follow_reads_items() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Status: started"));
+        .stdout(predicate::str::contains("Status: started"))
+        .stdout(predicate::str::contains("Job:").not())
+        .stdout(predicate::str::contains("Job directory:").not());
 
     let items_path = project
         .join(".atelier/threads")

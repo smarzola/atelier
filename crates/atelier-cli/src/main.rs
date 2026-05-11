@@ -570,6 +570,10 @@ fn main() -> Result<()> {
                             &prompt,
                             &decision,
                         )?;
+                        atelier_core::thread_pending::clear_pending_interaction(
+                            &resolved_project_path,
+                            &thread,
+                        )?;
                         println!("Status: prompt-answered");
                         println!("Prompt: {prompt_id}");
                         println!("Decision: {decision}");
@@ -584,9 +588,21 @@ fn main() -> Result<()> {
                             &prompt,
                             idle_timeout_seconds,
                         )?;
-                        println!("Status: started");
-                        println!("Job: {}", response.job_id);
-                        println!("Job directory: {}", response.job_dir.display());
+                        println!("Status: {}", response.status);
+                        if let Some(item_id) = response.item_id {
+                            println!("Item: {item_id}");
+                        }
+                        if let Some(sequence) = response.sequence {
+                            println!("Sequence: {sequence}");
+                        }
+                        if std::env::var_os("ATELIER_DEBUG_JOB_OUTPUT").is_some() {
+                            if let Some(job_id) = response.job_id {
+                                println!("Job: {job_id}");
+                            }
+                            if let Some(job_dir) = response.job_dir {
+                                println!("Job directory: {}", job_dir.display());
+                            }
+                        }
                     }
                 }
                 }
@@ -914,8 +930,21 @@ fn main() -> Result<()> {
                     &prompt,
                     idle_timeout_seconds,
                 )?;
-                println!("Job: {}", response.job_id);
-                println!("Job directory: {}", response.job_dir.display());
+                println!("Status: {}", response.status);
+                if let Some(item_id) = response.item_id {
+                    println!("Item: {item_id}");
+                }
+                if let Some(sequence) = response.sequence {
+                    println!("Sequence: {sequence}");
+                }
+                if std::env::var_os("ATELIER_DEBUG_JOB_OUTPUT").is_some() {
+                    if let Some(job_id) = response.job_id {
+                        println!("Job: {job_id}");
+                    }
+                    if let Some(job_dir) = response.job_dir {
+                        println!("Job directory: {}", job_dir.display());
+                    }
+                }
             }
         }
         Command::Continue {
@@ -1153,8 +1182,11 @@ struct ThreadItemContentInput {
 
 #[derive(Debug, serde::Deserialize)]
 struct DaemonWorkResponse {
-    job_id: String,
-    job_dir: PathBuf,
+    status: String,
+    item_id: Option<String>,
+    sequence: Option<u64>,
+    job_id: Option<String>,
+    job_dir: Option<PathBuf>,
 }
 
 fn default_idle_timeout_seconds() -> u64 {
@@ -1600,7 +1632,44 @@ struct ThreadMessageRuntimeRequest {
 }
 
 fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_json::Value> {
+    let pending = atelier_core::thread_pending::read_pending_interaction(
+        &request.project_path,
+        &request.thread,
+    )?;
     let user_item = append_runtime_user_message_item(&request, None)?;
+    if let Some(pending) = pending {
+        let decision = normalize_thread_prompt_decision(&request.text)?;
+        respond_to_prompt(
+            &request.project_path,
+            &pending.prompt_id,
+            &decision,
+            None,
+            None,
+        )?;
+        append_prompt_response_item(
+            &request.project_path,
+            &request.thread,
+            &request.person,
+            &pending.prompt_id,
+            &request.text,
+            &decision,
+        )?;
+        atelier_core::thread_pending::clear_pending_interaction(
+            &request.project_path,
+            &request.thread,
+        )?;
+        return Ok(with_thread_item_response_fields(
+            serde_json::json!({
+                "status":"prompt-answered",
+                "prompt_id":pending.prompt_id,
+                "project":request.project,
+                "thread":request.thread,
+                "person":request.person,
+                "debug":{"prompt_id":pending.prompt_id,"job_id":pending.job_id}
+            }),
+            &user_item,
+        ));
+    }
     let decision = atelier_core::thread_interaction::decide_thread_interaction(
         &request.project_path,
         &request.thread,
@@ -2315,7 +2384,7 @@ fn ensure_prompt_request_item(project_path: &Path, thread: &str, prompt_id: &str
         return Ok(());
     }
     let job_id = prompt_job_id(project_path, prompt_id)?;
-    atelier_core::thread_items::append_thread_item(
+    let item = atelier_core::thread_items::append_thread_item(
         project_path,
         thread,
         "atelier.approval_request",
@@ -2331,6 +2400,17 @@ fn ensure_prompt_request_item(project_path: &Path, thread: &str, prompt_id: &str
             "method": prompt.method,
             "choices": prompt.available_decisions
         })),
+    )?;
+    atelier_core::thread_pending::write_pending_interaction(
+        project_path,
+        thread,
+        &atelier_core::thread_pending::PendingThreadInteraction {
+            kind: "approval_request".to_string(),
+            item_id: item.id,
+            job_id,
+            prompt_id: prompt.id,
+            choices: prompt.available_decisions,
+        },
     )?;
     Ok(())
 }
