@@ -145,6 +145,7 @@ atelier prompts inbox
 atelier prompts list <project-or-alias>
 atelier prompts show <project-or-alias> <prompt-id>
 atelier prompts respond <project-or-alias> <prompt-id> accept
+atelier prompts respond-latest <project-or-alias> <job-id> accept
 atelier prompts respond <project-or-alias> <prompt-id> answer --text "example answer"
 atelier prompts respond <project-or-alias> <prompt-id> accept --json '{"decision":"accept"}'
 atelier jobs recover <project-or-alias> <job-id>

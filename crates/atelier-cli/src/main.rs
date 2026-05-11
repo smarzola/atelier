@@ -345,6 +345,21 @@ enum PromptsCommand {
         /// Decision to record.
         decision: String,
     },
+    /// Record a response for the newest pending prompt in a job.
+    RespondLatest {
+        /// Project folder path.
+        project_path: PathBuf,
+        /// Atelier job id.
+        job_id: String,
+        /// Optional text answer for user-input or elicitation prompts.
+        #[arg(long)]
+        text: Option<String>,
+        /// Optional JSON response object to forward to Codex.
+        #[arg(long)]
+        json: Option<String>,
+        /// Decision to record.
+        decision: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -733,20 +748,19 @@ fn main() -> Result<()> {
                 decision,
             } => {
                 let project_path = resolve_project_arg(&project_path)?;
-                let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
-                let response = build_prompt_response(&prompt, &decision, text, json)?;
-                prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
-                let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
-                std::fs::write(
-                    prompt_path,
-                    serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
-                )?;
-                let responses_dir = job_dir.join("responses");
-                std::fs::create_dir_all(&responses_dir)?;
-                std::fs::write(
-                    responses_dir.join(format!("{}.json", prompt.id)),
-                    serde_json::to_string_pretty(&response)?,
-                )?;
+                record_prompt_response_by_id(&project_path, &prompt_id, &decision, text, json)?;
+                println!("Recorded response {decision} for {prompt_id}");
+            }
+            PromptsCommand::RespondLatest {
+                project_path,
+                job_id,
+                text,
+                json,
+                decision,
+            } => {
+                let project_path = resolve_project_arg(&project_path)?;
+                let prompt_id = latest_pending_prompt_id_for_job(&project_path, &job_id)?;
+                record_prompt_response_by_id(&project_path, &prompt_id, &decision, text, json)?;
                 println!("Recorded response {decision} for {prompt_id}");
             }
         },
@@ -2063,6 +2077,16 @@ fn respond_to_prompt(
     text: Option<String>,
     json: Option<String>,
 ) -> Result<()> {
+    record_prompt_response_by_id(project_path, prompt_id, decision, text, json)
+}
+
+fn record_prompt_response_by_id(
+    project_path: &Path,
+    prompt_id: &str,
+    decision: &str,
+    text: Option<String>,
+    json: Option<String>,
+) -> Result<()> {
     let (job_dir, mut prompt) = find_prompt(project_path, prompt_id)?;
     let response = build_prompt_response(&prompt, decision, text, json)?;
     prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
@@ -2077,6 +2101,35 @@ fn respond_to_prompt(
         serde_json::to_string_pretty(&response)?,
     )?;
     Ok(())
+}
+
+fn latest_pending_prompt_id_for_job(project_path: &Path, job_id: &str) -> Result<String> {
+    let prompts_dir = project_path
+        .join(".atelier/jobs")
+        .join(job_id)
+        .join("prompts");
+    let mut prompt_ids = Vec::new();
+    if !prompts_dir.exists() {
+        anyhow::bail!("no prompts found for job {job_id}");
+    }
+    for entry in std::fs::read_dir(&prompts_dir).context("read prompts directory")? {
+        let path = entry.context("read prompt entry")?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let prompt: atelier_core::codex_app_server::PendingPrompt = serde_json::from_str(
+            &std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?,
+        )
+        .with_context(|| format!("parse {}", path.display()))?;
+        if prompt.status == atelier_core::codex_app_server::PendingPromptStatus::Pending {
+            prompt_ids.push(prompt.id);
+        }
+    }
+    prompt_ids.sort();
+    prompt_ids
+        .into_iter()
+        .next_back()
+        .with_context(|| format!("no pending prompts found for job {job_id}"))
 }
 
 fn show_job(project_path: &Path, job_id: &str) -> Result<()> {

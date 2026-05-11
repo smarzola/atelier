@@ -148,12 +148,13 @@ If Codex asks for approval, the job becomes `waiting-for-prompt`. You can answer
 atelier thread send hello-world --thread "$THREAD" --as alice approve
 ```
 
-Or use the explicit prompt commands when you need to inspect details or send structured input:
+Or use the explicit prompt commands when you need to inspect details or send structured input. For iterative approval flows, `respond-latest` avoids copying the newest prompt id from repeated list/show output:
 
 ```bash
 atelier prompts inbox
 atelier prompts show hello-world <prompt-id>
 atelier prompts respond hello-world <prompt-id> accept
+atelier prompts respond-latest hello-world <job-id> accept
 ```
 
 During a live dogfood run, Codex asked for file-change approval and then created this file:

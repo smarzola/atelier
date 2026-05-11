@@ -137,6 +137,41 @@ fn thread_send_approval_answers_single_pending_prompt() {
 }
 
 #[test]
+fn prompts_respond_latest_answers_only_newest_pending_prompt() {
+    let (temp, project, _thread_id) = initialized_project();
+    let job_dir = project.join(".atelier/jobs/job-example");
+    let prompts_dir = job_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir).expect("create prompts dir");
+    write_prompt(&prompts_dir, "prompt-1", "Approve command: first");
+    write_prompt(&prompts_dir, "prompt-2", "Approve command: second");
+
+    Command::cargo_bin("atelier")
+        .expect("atelier binary")
+        .env("HOME", temp.path())
+        .args([
+            "prompts",
+            "respond-latest",
+            project.to_str().expect("utf8 path"),
+            "job-example",
+            "accept",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Recorded response accept for prompt-2",
+        ));
+
+    assert!(job_dir.join("responses/prompt-2.json").exists());
+    assert!(!job_dir.join("responses/prompt-1.json").exists());
+    let first_prompt =
+        std::fs::read_to_string(prompts_dir.join("prompt-1.json")).expect("read first prompt");
+    assert!(first_prompt.contains("\"status\": \"Pending\""));
+    let second_prompt =
+        std::fs::read_to_string(prompts_dir.join("prompt-2.json")).expect("read second prompt");
+    assert!(second_prompt.contains("\"status\": \"Resolved\""));
+}
+
+#[test]
 fn prompts_respond_validates_decisions_and_supports_text_payloads() {
     let (temp, project, _thread_id) = initialized_project();
     let job_dir = project.join(".atelier/jobs/job-example");
@@ -193,6 +228,26 @@ fn prompts_respond_validates_decisions_and_supports_text_payloads() {
         std::fs::read_to_string(job_dir.join("responses/prompt-8.json")).expect("read response");
     assert!(response.contains("\"decision\": \"answer\""));
     assert!(response.contains("\"text\": \"example answer\""));
+}
+
+fn write_prompt(prompts_dir: &std::path::Path, prompt_id: &str, summary: &str) {
+    std::fs::write(
+        prompts_dir.join(format!("{prompt_id}.json")),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": prompt_id,
+            "codex_request_id": prompt_id,
+            "method": "item/commandExecution/requestApproval",
+            "codex_thread_id": "codex-thread-example",
+            "codex_turn_id": "turn-example",
+            "codex_item_id": "call-example",
+            "status": "Pending",
+            "summary": summary,
+            "available_decisions": ["accept", "decline", "cancel"],
+            "params": {"command": "cargo test"}
+        }))
+        .expect("serialize prompt"),
+    )
+    .expect("write prompt");
 }
 
 fn initialized_project() -> (tempfile::TempDir, std::path::PathBuf, String) {
