@@ -2104,9 +2104,10 @@ fn ensure_project_writer_available(project_path: &Path) -> Result<()> {
     for status in list_jobs(project_path)? {
         if status.status == "running" || status.status == "waiting-for-prompt" {
             anyhow::bail!(
-                "active managed job already owns project writer slot: {} ({})",
+                "active managed job already owns project writer slot: {} ({}); inspect /jobs or run `atelier jobs list {}` for recovery details",
                 status.id,
-                status.status
+                status.status,
+                project_path.display()
             );
         }
     }

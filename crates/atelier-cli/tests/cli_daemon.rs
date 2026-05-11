@@ -118,6 +118,54 @@ fn daemon_run_supervises_workers_by_default() {
 }
 
 #[test]
+fn daemon_message_endpoint_starts_after_dead_worker_without_waiting_for_supervisor() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    write_running_job_with_dead_worker_for_thread(&project, "job-dead-worker", &thread_id);
+
+    let fake_bin = temp.path().join("fake-bin");
+    std::fs::create_dir(&fake_bin).expect("fake bin");
+    write_fake_codex(&fake_bin.join("codex"));
+
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port)
+        .env("PATH", prepend_to_path(&fake_bin))
+        .arg("--supervision-interval-millis")
+        .arg("60000")
+        .spawn()
+        .expect("spawn daemon");
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        "/events/message",
+        &format!(
+            r#"{{"gateway":"example-gateway","project":"example-project","thread":"{}","person":"alice","text":"Run after stale worker"}}"#,
+            thread_id
+        ),
+    );
+    assert_eq!(
+        response["status"], "started",
+        "dead worker should not keep owning the thread/project writer slot: {response}"
+    );
+    wait_for_job_status(&project, "job-dead-worker", "worker-lost");
+    wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+
+    let jobs = get_json(port, "/jobs");
+    let dead_worker = jobs["jobs"]
+        .as_array()
+        .expect("jobs")
+        .iter()
+        .find(|job| job["id"] == "job-dead-worker")
+        .expect("dead worker job listed");
+    assert_eq!(dead_worker["status"], "worker-lost");
+
+    let _ = daemon.kill();
+}
+
+#[test]
 fn daemon_run_sets_telegram_webhook_and_enforces_update_secret() {
     let temp = tempfile::tempdir().expect("tempdir");
     let telegram_api = FakeTelegramApi::start(1);
@@ -388,6 +436,14 @@ fn create_thread(temp: &tempfile::TempDir, project: &std::path::Path) -> String 
 }
 
 fn write_running_job_with_dead_worker(project: &std::path::Path, job_id: &str) {
+    write_running_job_with_dead_worker_for_thread(project, job_id, "thread-example");
+}
+
+fn write_running_job_with_dead_worker_for_thread(
+    project: &std::path::Path,
+    job_id: &str,
+    thread_id: &str,
+) {
     let job_dir = project.join(".atelier/jobs").join(job_id);
     std::fs::create_dir_all(&job_dir).expect("job dir");
     std::fs::write(
@@ -395,7 +451,7 @@ fn write_running_job_with_dead_worker(project: &std::path::Path, job_id: &str) {
         serde_json::to_string_pretty(&serde_json::json!({
             "id": job_id,
             "status": "running",
-            "thread_id":"thread-example",
+            "thread_id":thread_id,
             "person":"alice",
             "dry_run":false,
             "codex_binary":"codex",
