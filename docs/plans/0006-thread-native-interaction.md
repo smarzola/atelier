@@ -2,6 +2,8 @@
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
+> **Superseded product-interface note:** This plan introduced thread-native routing and durable raw thread events. The product-facing parts that expose raw events as the main user/gateway surface are superseded by the OpenAI-style conversation item model in `docs/decisions/0012-openai-style-thread-items.md`, `docs/thread-conversation-items.md`, and `docs/plans/0007-openai-style-thread-items.md`. Keep this plan as historical implementation context for the current event-based alpha internals.
+
 **Goal:** Resolve issue #12 by replacing the current job-start-oriented UX with one shared thread-native interaction model used by the CLI, local API, and gateway adapters.
 
 **Architecture:** Introduce a small core interaction layer that accepts a normalized message addressed to a person/project/thread, decides whether to answer a pending prompt, queue/continue running work, resume an existing Codex session, or start a new job, and emits durable thread/job events. CLI, API, and Telegram should become thin surfaces over that same layer. Output delivery should read from the same project-local event stream, with per-surface delivery cursors for idempotency.
