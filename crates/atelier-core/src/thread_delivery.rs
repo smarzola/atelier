@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::thread::thread_dir;
 use crate::thread_events::ThreadEvent;
+use crate::thread_items::ThreadItem;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct DeliveryCursor {
@@ -19,6 +20,15 @@ pub fn read_undelivered_events(
 ) -> Result<Vec<ThreadEvent>> {
     let cursor = read_delivery_cursor(project_path, thread_id, subscriber_id)?;
     crate::thread_events::read_thread_events(project_path, thread_id, cursor.last_sequence)
+}
+
+pub fn read_undelivered_items(
+    project_path: &Path,
+    thread_id: &str,
+    subscriber_id: &str,
+) -> Result<Vec<ThreadItem>> {
+    let cursor = read_delivery_cursor(project_path, thread_id, subscriber_id)?;
+    crate::thread_items::read_thread_items(project_path, thread_id, cursor.last_sequence)
 }
 
 pub fn advance_delivery_cursor(

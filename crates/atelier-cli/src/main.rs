@@ -2861,27 +2861,18 @@ fn publish_telegram_bounded_progress(job_dir: &Path, thread: &str) -> Result<()>
         return Ok(());
     };
     let subscriber_id = format!("telegram-{}", job_id_from_dir(job_dir));
-    let events = atelier_core::thread_delivery::read_undelivered_events(
+    let items = atelier_core::thread_delivery::read_undelivered_items(
         &project_path,
         thread,
         &subscriber_id,
     )?;
-    let progress_events = atelier_core::thread_progress::select_bounded_progress_events(&events);
-    let delivered_sequences = progress_events
-        .iter()
-        .map(|event| event.sequence)
-        .collect::<std::collections::HashSet<_>>();
     let mut last_sequence = None;
-    for event in &events {
-        last_sequence = Some(event.sequence);
-        if !delivered_sequences.contains(&event.sequence) {
+    for item in &items {
+        last_sequence = Some(item.sequence);
+        if !telegram_deliverable_item(item) {
             continue;
         }
-        let Some(text) = event
-            .payload
-            .get("text")
-            .and_then(serde_json::Value::as_str)
-        else {
+        let Some(text) = item.content.first().map(|content| content.text.as_str()) else {
             continue;
         };
         telegram_send_message_body(
@@ -2904,6 +2895,15 @@ fn publish_telegram_bounded_progress(job_dir: &Path, thread: &str) -> Result<()>
         )?;
     }
     Ok(())
+}
+
+fn telegram_deliverable_item(item: &atelier_core::thread_items::ThreadItem) -> bool {
+    match item.item_type.as_str() {
+        "message" => item.role == "assistant",
+        "atelier.approval_request" | "atelier.recovery_notice" => true,
+        "atelier.approval_response" => false,
+        _ => false,
+    }
 }
 
 fn append_prompt_required_event(
