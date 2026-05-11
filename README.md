@@ -2,7 +2,7 @@
 
 Atelier is a project-native runtime around Codex CLI.
 
-The idea is simple: people work in projects, so agents should work in projects too. Atelier adds an always-alive daemon, gateway/API surface, person identity, project routing, threads, jobs, prompt relay, and session lineage around Codex. Codex remains the only agentic worker.
+The idea is simple: people work in projects, so agents should work in projects too. Atelier adds an always-alive daemon, gateway/API surface, person identity, project routing, threads, conversation items, debug runtime artifacts, and session lineage around Codex. Codex remains the only agentic worker.
 
 ## Status: alpha
 
@@ -13,11 +13,11 @@ The alpha currently supports:
 - home workspace initialization;
 - person-scoped memory that is injected into Atelier-launched Codex work;
 - project initialization with automatic registry aliases;
-- daemon-managed `atelier work`;
-- dry-runs without a daemon;
-- thread item streams, internal jobs/prompts, recovery, and session lineage;
+- daemon-managed `atelier thread send`;
+- thread item streams, approval replies, recovery notices, and session lineage;
+- internal jobs/prompts/raw events as debug artifacts;
 - a loopback-first daemon HTTP API;
-- generic gateway events;
+- generic gateway routing;
 - a Telegram daemon gateway with webhook setup, secret validation, inbound update routing, outbound Bot API `sendMessage`, and bounded item-stream delivery for approvals and final results.
 
 Release archives are built only for:
@@ -28,7 +28,7 @@ Release archives are built only for:
 
 ## A small usage example
 
-This walkthrough creates a tiny `hello-world` project, asks Atelier/Codex to write a file, handles a Codex approval prompt through the daemon API, and then inspects the result.
+This walkthrough creates a tiny `hello-world` project, sends messages into a project thread, handles a Codex approval by replying in that same thread, and then inspects the result.
 
 ### 1. Install Codex and Atelier
 
@@ -69,7 +69,7 @@ atelier people memory set alice "Prefers short, practical examples."
 
 ### 3. Start the daemon
 
-Atelier is daemon-first. Ordinary `atelier work` is daemon-managed by default. If the daemon is not running, work fails instead of silently starting unmanaged local work.
+Atelier is daemon-first. Ordinary project work is sent as messages into project threads. If the daemon is not running, managed thread work fails instead of silently starting unmanaged local work.
 
 Run this in a separate terminal and leave it running:
 
@@ -105,21 +105,13 @@ Keep outputs small and beginner friendly. Use files in this folder as source of 
 EOF
 ```
 
-### 5. Create a thread and dry-run the first task
+### 5. Create a thread
 
-Threads are workstreams inside projects. A dry-run is useful before the first real task because it shows the exact context Atelier will inject into Codex.
+Threads are workstreams inside projects. You keep sending messages to a thread and reading conversation items back from it.
 
 ```bash
 THREAD=$(atelier thread new hello-world "Build a friendly greeting" --porcelain)
-
-atelier work hello-world \
-  --thread "$THREAD" \
-  --as alice \
-  --dry-run \
-  "Create a tiny hello-world note"
 ```
-
-The dry-run is intentionally daemon-free. It records a dry-run job and prints the Codex invocation and injected person/thread context.
 
 ### 6. Send work into the thread from the CLI
 
@@ -130,27 +122,26 @@ atelier thread send hello-world \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand, but thread-native send/follow is the preferred ongoing workflow. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer. Thread events are bounded: Atelier records lifecycle events, prompt notifications, coalesced agent-message snapshots, and final results rather than streaming token-by-token updates. Inspect it from the CLI:
+`atelier thread send` submits the message to the daemon-managed thread interaction path. If the project is busy, Atelier preserves the user message in the thread and surfaces state there instead of teaching job ids as the normal workflow. Inspect the conversation item stream from the CLI:
 
 ```bash
 atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
-Jobs and prompt records remain inspectable as debug/internal artifacts when needed:
-
-```bash
-atelier jobs list hello-world
-atelier jobs show hello-world <job-id>
-atelier prompts inbox
-```
-
-If Codex needs approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval through the thread:
+If Codex needs approval, answer in the same thread:
 
 ```bash
 atelier thread send hello-world --thread "$THREAD" --as alice approve
 ```
 
-Use `atelier prompts inbox/show/respond` when you need to inspect details or send structured prompt input. While dogfooding this flow, Codex asked for file-change approval before writing `HELLO.md`.
+Internal job, prompt, and raw-event artifacts remain inspectable for debugging when needed:
+
+```bash
+atelier debug jobs list hello-world
+atelier debug jobs show hello-world <job-id>
+atelier debug prompts inbox
+atelier debug events follow hello-world --thread "$THREAD"
+```
 
 ### 7. Use the API for the same workflow
 
@@ -175,7 +166,7 @@ Read the thread item stream:
 curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world&after=0"
 ```
 
-For compatibility/debugging, `/work`, `/jobs`, `/prompts`, and `/prompts/respond` remain available, but normal clients should prefer thread messages/items.
+Normal API clients should use the project/thread item surface. Internal runtime endpoints, if enabled, are debug/operator surfaces rather than the product workflow.
 
 Then check the file Codex created and session lineage:
 
@@ -208,7 +199,7 @@ This creates the project folder, writes the starter Atelier/Codex files, registe
    - No provider abstraction is planned until the Codex-only constraint clearly stops making sense.
 
 3. **Project knowledge lives in the project**
-   - Project instructions, skills, MCP configuration, notes, memory, jobs, and artifacts belong inside the project folder whenever possible.
+   - Project instructions, skills, MCP configuration, notes, memory, thread items, and artifacts belong inside the project folder whenever possible.
    - A person should be able to enter the folder and understand the project without reading prior chats.
 
 4. **Person memory is global and separate**
