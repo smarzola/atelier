@@ -14,7 +14,7 @@ The alpha currently supports:
 - person-scoped memory that is injected into Atelier-launched Codex work;
 - project initialization with automatic registry aliases;
 - daemon-managed `atelier thread send`;
-- thread item streams, approval replies, recovery notices, and session lineage;
+- OpenAI-style thread message/item APIs, input replies, recovery notices, and session lineage;
 - internal jobs/prompts/raw events as debug artifacts;
 - a loopback-first daemon HTTP API;
 - generic gateway routing;
@@ -152,7 +152,17 @@ curl -s http://127.0.0.1:8787/health
 curl -s http://127.0.0.1:8787/projects
 ```
 
-Append a user message directly to the product-facing thread item stream:
+For ordinary managed work, send a message to the thread-native message endpoint. The request mirrors an OpenAI-style message item, and the response is the created conversation item plus a `status`:
+
+```bash
+curl -s "http://127.0.0.1:8787/threads/$THREAD/messages?project=hello-world" \
+  -H 'Content-Type: application/json' \
+  -d '{"role":"user","content":[{"type":"input_text","text":"Append one more friendly sentence to HELLO.md."}],"metadata":{"person":"alice","source":"api"}}'
+```
+
+The normal response is item-facing and does not expose `job_id`, `job_dir`, or `prompt_id` at top level. If an internal identifier is useful for debugging, it is nested under `debug`.
+
+Append a user message directly to the durable item stream only when you want to record an item without necessarily asking Codex to act:
 
 ```bash
 curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world" \

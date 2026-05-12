@@ -33,9 +33,7 @@ All normal interaction with Atelier must use thread items:
 
 - user messages;
 - assistant messages;
-- approval requests;
-- approval responses;
-- input requests;
+- input requests and responses, including Codex approvals;
 - progress updates;
 - final answers;
 - stuck/recovery notices.
@@ -77,12 +75,14 @@ The item envelope follows OpenAI conventions where practical:
 Atelier-specific item types must use an `atelier.` namespace, for example:
 
 ```text
-atelier.approval_request
-atelier.approval_response
+atelier.input_request
+atelier.input_response
 atelier.thread_state
 atelier.recovery_notice
 atelier.debug_event
 ```
+
+`atelier.approval_request` and `atelier.approval_response` were early names and are superseded by the generalized input request/response types.
 
 Plain conversation should use standard-style message items:
 
@@ -92,14 +92,14 @@ role = user | assistant | system
 content[] = input_text | output_text
 ```
 
-## Approval semantics
+## Input and approval semantics
 
 When Codex app-server emits an approval or input request, Atelier must append a thread item such as:
 
 ```json
 {
   "object": "conversation.item",
-  "type": "atelier.approval_request",
+  "type": "atelier.input_request",
   "role": "assistant",
   "content": [
     {
@@ -109,14 +109,16 @@ When Codex app-server emits an approval or input request, Atelier must append a 
   ],
   "metadata": {
     "choices": "approve,decline,cancel",
-    "job_id": "job-internal",
-    "prompt_id": "prompt-internal",
+    "debug": {
+      "job_id": "job-internal",
+      "prompt_id": "prompt-internal"
+    },
     "method": "item/commandExecution/requestApproval"
   }
 }
 ```
 
-The next inbound user message to the same thread is interpreted against pending thread state. A user reply such as `approve` should resolve the internal Codex prompt, append an acknowledgement item, and let the worker continue. The user should not need the job id or prompt id for ordinary approvals.
+The next inbound user message to the same thread is interpreted against pending thread state. A user reply such as `approve` should resolve the internal Codex prompt, append an input response item, and let the worker continue. The user should not need the job id or prompt id for ordinary approvals.
 
 ## Storage model
 

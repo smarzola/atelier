@@ -11,6 +11,7 @@ use crate::thread::codex_session_lineage;
 pub enum ThreadInteractionDecision {
     AnswerPrompt { prompt_id: String },
     QueueForRunningJob { job_id: String },
+    BlockedByProject { job_id: String },
     ContinueSession { codex_session_id: String },
     StartJob,
 }
@@ -25,6 +26,9 @@ pub fn decide_thread_interaction(
     }
     if let Some(job_id) = active_job(project_path, thread_id)? {
         return Ok(ThreadInteractionDecision::QueueForRunningJob { job_id });
+    }
+    if let Some(job_id) = active_project_job(project_path)? {
+        return Ok(ThreadInteractionDecision::BlockedByProject { job_id });
     }
     if let Some(codex_session_id) = latest_codex_session_id(project_path, thread_id)? {
         return Ok(ThreadInteractionDecision::ContinueSession { codex_session_id });
@@ -72,6 +76,20 @@ fn active_job(project_path: &Path, thread_id: &str) -> Result<Option<String>> {
         if status.thread_id == thread_id
             && matches!(status.status.as_str(), "running" | "waiting-for-prompt")
         {
+            active.push(status.id);
+        }
+    }
+    active.sort();
+    Ok(active.into_iter().next())
+}
+
+fn active_project_job(project_path: &Path) -> Result<Option<String>> {
+    let mut active = Vec::new();
+    for job_dir in job_dirs(project_path)? {
+        let Some(status) = read_job_status(&job_dir)? else {
+            continue;
+        };
+        if matches!(status.status.as_str(), "running" | "waiting-for-prompt") {
             active.push(status.id);
         }
     }

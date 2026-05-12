@@ -135,7 +135,7 @@ atelier thread send hello-world \
 
 `atelier thread send` submits the message to the daemon-managed thread interaction path. If the project is busy, Atelier preserves the user message in the thread and surfaces state there instead of teaching job ids as the normal workflow.
 
-The shared thread item stream is intentionally bounded. Atelier records user messages, assistant results, approval requests, and approval replies as conversation items; it does not send token-by-token gateway spam.
+The shared thread item stream is intentionally bounded. Atelier records user messages, assistant results, input requests, input replies, and project state as conversation items; it does not send token-by-token gateway spam.
 
 Follow the conversation item stream:
 
@@ -209,12 +209,18 @@ curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world" \
   -d '{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello through the item API"}],"metadata":{"person":"alice","source":"api"}}]}'
 ```
 
-When you want Codex to act on a message, use the thread-native message endpoint. The response is item-facing (`status`, `item_id`, `sequence`) with job ids only under `debug` metadata:
+When you want Codex to act on a message, use the thread-native message endpoint. The preferred request shape is an OpenAI-like user message:
 
 ```bash
 curl -s "http://127.0.0.1:8787/threads/$THREAD/messages?project=hello-world" \
   -H 'Content-Type: application/json' \
-  -d '{"person":"alice","text":"Append one more friendly sentence to HELLO.md."}'
+  -d '{"role":"user","content":[{"type":"input_text","text":"Append one more friendly sentence to HELLO.md."}],"metadata":{"person":"alice","source":"api"}}'
+```
+
+The response is the created `conversation.item` plus a `status` such as `started`, `input-answered`, or `blocked`. Normal responses do not expose `job_id`, `job_dir`, `prompt_id`, or raw event names at top level; debug identifiers live under nested `debug` fields. The shorthand shape remains available for simple clients:
+
+```json
+{"person":"alice","text":"Append one more friendly sentence to HELLO.md."}
 ```
 
 Read the product-facing thread item stream with a stateless cursor:
@@ -295,7 +301,7 @@ curl -s http://127.0.0.1:8787/adapters/telegram/update \
   -d '{"message":{"message_id":10,"message_thread_id":77,"chat":{"id":1000},"from":{"id":2000},"text":"Run this task"}}'
 ```
 
-Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. Telegram delivery reads the shared thread item stream, publishes user-facing approval requests and final assistant output back to the same chat/topic, and advances delivery cursors to avoid duplicate sends. Internal job ids and raw event names are not part of normal Telegram delivery.
+Atelier maps Telegram thread ids to `chat:<chat-id>` or `chat:<chat-id>:topic:<topic-id>`. Telegram delivery reads the shared thread item stream, publishes user-facing `atelier.input_request`, `atelier.thread_state`, and final assistant output back to the same chat/topic, and advances delivery cursors to avoid duplicate sends. Internal job ids and raw event names are not part of normal Telegram delivery.
 
 Send a Telegram message through the Bot API:
 
@@ -315,7 +321,7 @@ The thread-native flow was dogfooded against a temporary mock project with a fak
 3	message	assistant	dogfood done
 ```
 
-This verifies that CLI send/follow, daemon item APIs, Codex app-server output translation, and project-local artifacts operate through the same thread item model. Normal `atelier thread send` output is item-facing (`Status`, `Item`, `Sequence`) and does not print internal job ids or job directories unless explicit debug output is requested.
+This verifies that CLI send/follow, daemon item APIs, Codex app-server output translation, and project-local artifacts operate through the same thread item model. Normal `atelier thread send` output is item-facing (`Status`, `Item`, `Sequence`) and does not print internal job ids or job directories unless explicit debug output is requested. The message endpoint has also been exercised with the OpenAI-like `role`/`content`/`metadata` request shape and returns a `conversation.item` rather than a job-centric envelope.
 
 ## Codex-native skills and MCP
 

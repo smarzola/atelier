@@ -129,7 +129,9 @@ fn thread_send_approval_answers_single_pending_prompt() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Prompt: prompt-9"));
+        .stdout(predicate::str::contains("Status: input-answered"))
+        .stdout(predicate::str::contains("Item: item-"))
+        .stdout(predicate::str::contains("Prompt: prompt-9").not());
 
     let response =
         std::fs::read_to_string(job_dir.join("responses/prompt-9.json")).expect("read response");
@@ -140,12 +142,13 @@ fn thread_send_approval_answers_single_pending_prompt() {
     assert!(
         items
             .iter()
-            .any(|item| item.item_type == "atelier.approval_request"
+            .any(|item| item.item_type == "atelier.input_request"
                 && item.role == "assistant"
                 && item.content[0].content_type == "output_text"
                 && item
                     .metadata
-                    .get("prompt_id")
+                    .get("debug")
+                    .and_then(|debug| debug.get("prompt_id"))
                     .and_then(|value| value.as_str())
                     == Some("prompt-9")),
         "pending prompt should be visible as an approval request item: {items:?}"
@@ -153,13 +156,14 @@ fn thread_send_approval_answers_single_pending_prompt() {
     assert!(
         items
             .iter()
-            .any(|item| item.item_type == "atelier.approval_response"
+            .any(|item| item.item_type == "atelier.input_response"
                 && item.role == "user"
                 && item.content[0].content_type == "input_text"
                 && item.content[0].text == "approve"
                 && item
                     .metadata
-                    .get("prompt_id")
+                    .get("debug")
+                    .and_then(|debug| debug.get("prompt_id"))
                     .and_then(|value| value.as_str())
                     == Some("prompt-9")),
         "thread reply should be recorded as an approval response item: {items:?}"

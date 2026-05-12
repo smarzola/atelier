@@ -44,6 +44,7 @@ fn status_summarizes_registered_projects_jobs_and_prompts() {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args(["status"])
         .assert()
         .success()
@@ -84,6 +85,7 @@ fn prompts_inbox_lists_pending_prompts_across_registered_projects() {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args(["prompts", "inbox"])
         .assert()
         .success()
@@ -96,6 +98,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "project",
             "init",
@@ -108,6 +111,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "projects",
             "add",

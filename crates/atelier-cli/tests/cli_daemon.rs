@@ -27,12 +27,17 @@ fn daemon_thread_message_endpoint_starts_work_without_top_level_job_fields() {
     let response = post_json(
         port,
         &format!("/threads/{thread_id}/messages?project=example-project"),
-        r#"{"person":"alice","text":"Run daemon task"}"#,
+        r#"{"role":"user","content":[{"type":"input_text","text":"Run daemon task"}],"metadata":{"person":"alice","source":"api"}}"#,
     );
+    assert_eq!(response["object"], "conversation.item");
+    assert_eq!(response["type"], "message");
+    assert_eq!(response["role"], "user");
+    assert_eq!(response["content"][0]["type"], "input_text");
+    assert_eq!(response["content"][0]["text"], "Run daemon task");
     assert_eq!(response["status"], "started");
-    assert_eq!(response["project"], "example-project");
-    assert_eq!(response["thread"], thread_id);
-    assert_eq!(response["person"], "alice");
+    assert_eq!(response["metadata"]["project"], "example-project");
+    assert_eq!(response["metadata"]["thread"], thread_id);
+    assert_eq!(response["metadata"]["person"], "alice");
     assert!(
         response.get("job_id").is_none(),
         "normal thread message response must not expose top-level job_id: {response}"
@@ -48,6 +53,7 @@ fn daemon_thread_message_endpoint_starts_work_without_top_level_job_fields() {
         port,
         &format!("/threads/{thread_id}/items?project=example-project&after=0"),
     );
+    assert_eq!(listed["data"][0]["id"], response["id"]);
     assert_eq!(listed["data"][0]["type"], "message");
     assert_eq!(listed["data"][0]["role"], "user");
     assert_eq!(listed["data"][0]["content"][0]["text"], "Run daemon task");
@@ -57,6 +63,103 @@ fn daemon_thread_message_endpoint_starts_work_without_top_level_job_fields() {
     assert_eq!(audit_event["project"], "example-project");
     assert_eq!(audit_event["person"], "alice");
     assert_eq!(audit_event["result"], "started");
+
+    let _ = daemon.kill();
+}
+
+#[test]
+fn daemon_thread_message_endpoint_answers_pending_input_with_conversation_items() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let thread_id = create_thread(&temp, &project);
+    write_waiting_prompt_job_for_thread(&project, "job-pending", "prompt-pending", &thread_id);
+
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port).spawn().expect("spawn daemon");
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        &format!("/threads/{thread_id}/messages?project=example-project"),
+        r#"{"role":"user","content":[{"type":"input_text","text":"approve"}],"metadata":{"person":"alice","source":"api"}}"#,
+    );
+    assert_eq!(response["object"], "conversation.item");
+    assert_eq!(response["type"], "atelier.input_response");
+    assert_eq!(response["role"], "user");
+    assert_eq!(response["status"], "input-answered");
+    assert_eq!(response["content"][0]["type"], "input_text");
+    assert_eq!(response["content"][0]["text"], "approve");
+    assert!(
+        response.get("prompt_id").is_none(),
+        "normal response must not expose top-level prompt_id: {response}"
+    );
+    assert!(
+        response.get("job_id").is_none(),
+        "normal response must not expose top-level job_id: {response}"
+    );
+    assert_eq!(response["debug"]["prompt_id"], "prompt-pending");
+
+    let items = get_json(
+        port,
+        &format!("/threads/{thread_id}/items?project=example-project&after=0"),
+    );
+    assert!(
+        items["data"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .any(|item| { item["type"] == "atelier.input_request" && item["role"] == "assistant" })
+    );
+    assert!(
+        items["data"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .any(|item| { item["type"] == "atelier.input_response" && item["role"] == "user" })
+    );
+
+    let response_file = project.join(".atelier/jobs/job-pending/responses/prompt-pending.json");
+    let response_text = std::fs::read_to_string(response_file).expect("read prompt response");
+    assert!(response_text.contains("\"decision\": \"accept\""));
+
+    let _ = daemon.kill();
+}
+
+#[test]
+fn daemon_thread_message_endpoint_records_thread_state_when_busy() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let project = temp.path().join("example-project");
+    init_and_register(&temp, &project);
+    let active_thread = create_thread(&temp, &project);
+    let target_thread = create_thread(&temp, &project);
+    write_running_job_with_live_worker_for_thread(&project, "job-active", &active_thread);
+
+    let port = free_port();
+    let mut daemon = daemon_command(&temp, port).spawn().expect("spawn daemon");
+    wait_for_health(port);
+
+    let response = post_json(
+        port,
+        &format!("/threads/{target_thread}/messages?project=example-project"),
+        r#"{"role":"user","content":[{"type":"input_text","text":"Run later"}],"metadata":{"person":"alice","source":"api"}}"#,
+    );
+    assert_eq!(response["object"], "conversation.item");
+    assert_eq!(response["type"], "atelier.thread_state");
+    assert_eq!(response["status"], "blocked");
+    assert_eq!(response["metadata"]["active_thread"], active_thread);
+    assert!(response.get("job_id").is_none());
+    assert_eq!(response["debug"]["job_id"], "job-active");
+
+    let items = get_json(
+        port,
+        &format!("/threads/{target_thread}/items?project=example-project&after=0"),
+    );
+    assert_eq!(items["data"][0]["type"], "message");
+    assert_eq!(items["data"][0]["content"][0]["text"], "Run later");
+    assert!(items["data"].as_array().expect("items").iter().any(|item| {
+        item["type"] == "atelier.thread_state" && item["metadata"]["state"] == "blocked"
+    }));
 
     let _ = daemon.kill();
 }
@@ -603,6 +706,23 @@ fn write_running_job_with_dead_worker_for_thread(
     job_id: &str,
     thread_id: &str,
 ) {
+    write_running_job_with_worker_pid(project, job_id, thread_id, 99999999_u64);
+}
+
+fn write_running_job_with_live_worker_for_thread(
+    project: &std::path::Path,
+    job_id: &str,
+    thread_id: &str,
+) {
+    write_running_job_with_worker_pid(project, job_id, thread_id, std::process::id() as u64);
+}
+
+fn write_running_job_with_worker_pid(
+    project: &std::path::Path,
+    job_id: &str,
+    thread_id: &str,
+    pid: u64,
+) {
     let job_dir = project.join(".atelier/jobs").join(job_id);
     std::fs::create_dir_all(&job_dir).expect("job dir");
     std::fs::write(
@@ -622,12 +742,54 @@ fn write_running_job_with_dead_worker_for_thread(
     std::fs::write(
         job_dir.join("worker.json"),
         serde_json::to_string_pretty(&serde_json::json!({
-            "pid": 99999999_u64,
+            "pid": pid,
             "idle_timeout_seconds": 300
         }))
         .expect("worker json"),
     )
     .expect("worker file");
+}
+
+fn write_waiting_prompt_job_for_thread(
+    project: &std::path::Path,
+    job_id: &str,
+    prompt_id: &str,
+    thread_id: &str,
+) {
+    let job_dir = project.join(".atelier/jobs").join(job_id);
+    let prompts_dir = job_dir.join("prompts");
+    std::fs::create_dir_all(&prompts_dir).expect("prompts dir");
+    std::fs::write(
+        job_dir.join("status.json"),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": job_id,
+            "status": "waiting-for-prompt",
+            "thread_id": thread_id,
+            "person":"alice",
+            "dry_run":false,
+            "codex_binary":"codex",
+            "invocation":["app-server"]
+        }))
+        .expect("status json"),
+    )
+    .expect("status");
+    std::fs::write(
+        prompts_dir.join(format!("{prompt_id}.json")),
+        serde_json::to_string_pretty(&serde_json::json!({
+            "id": prompt_id,
+            "codex_request_id":"1",
+            "method":"item/commandExecution/requestApproval",
+            "codex_thread_id":"codex-thread-example",
+            "codex_turn_id":"turn-example",
+            "codex_item_id":"item-example",
+            "status":"Pending",
+            "summary":"Approve command: cargo test",
+            "available_decisions":["accept","decline","cancel"],
+            "params":{"command":"cargo test"}
+        }))
+        .expect("prompt json"),
+    )
+    .expect("prompt");
 }
 
 fn wait_for_job_status(project: &std::path::Path, job_id: &str, expected: &str) {
