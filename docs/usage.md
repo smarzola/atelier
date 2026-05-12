@@ -6,11 +6,11 @@ This guide shows the current alpha workflow by walking through one small project
 
 Atelier has three operating modes:
 
-1. **Atelier setup and inspection** — home initialization, person memory, project creation, thread creation, dry-runs, job listing, prompt inspection, and session listing can run from the CLI.
-2. **Atelier work** — ordinary `atelier work` is daemon-managed and requires `atelier daemon run`.
+1. **Atelier setup** — home initialization, person memory, project creation, thread creation, and session listing can run from the CLI.
+2. **Atelier thread work** — ordinary managed work is sent as messages into project threads and requires `atelier daemon run`.
 3. **Raw Codex** — still possible in a project folder, but outside Atelier orchestration and not the primary Atelier user flow.
 
-The daemon-first split is intentional. Atelier is an orchestrator. Managed work goes through the always-alive daemon so gateway messages, API calls, CLI submissions, prompt relay, recovery, and job state all share the same runtime path.
+The daemon-first split is intentional. Atelier is an orchestrator. Managed work goes through the always-alive daemon so gateway messages, API calls, CLI submissions, approvals, recovery, and runtime state all share the same thread item path.
 
 Key concepts:
 
@@ -116,19 +116,13 @@ Keep outputs small and beginner friendly. Use files in this folder as source of 
 EOF
 ```
 
-### Create a thread and dry-run the first task
+### Create a thread
 
 ```bash
 THREAD=$(atelier thread new hello-world "Build a friendly greeting" --porcelain)
-
-atelier work hello-world \
-  --thread "$THREAD" \
-  --as alice \
-  --dry-run \
-  "Create a tiny hello-world note"
 ```
 
-The dry-run does not require the daemon. It writes a dry-run job artifact and prints the Codex command plus explicit context injection, including the current person and thread.
+Threads are workstreams. You keep sending messages to the thread and reading conversation items back from it.
 
 ### Send the first real thread message from the CLI
 
@@ -139,7 +133,7 @@ atelier thread send hello-world \
   "Create HELLO.md with a friendly one-paragraph greeting for this project."
 ```
 
-`atelier thread send` submits the message to the daemon-managed thread interaction path. `atelier work` remains available as a compatibility shorthand for starting managed work, but the thread-native command is preferred for ongoing workstreams. If another job is already running in the project, the message is persisted to the thread's `queued-messages.jsonl` rather than starting an overlapping writer.
+`atelier thread send` submits the message to the daemon-managed thread interaction path. If the project is busy, Atelier preserves the user message in the thread and surfaces state there instead of teaching job ids as the normal workflow.
 
 The shared thread item stream is intentionally bounded. Atelier records user messages, assistant results, approval requests, and approval replies as conversation items; it does not send token-by-token gateway spam.
 
@@ -149,38 +143,24 @@ Follow the conversation item stream:
 atelier thread follow hello-world --thread "$THREAD" --after 0
 ```
 
-Jobs are still inspectable as internal/debug artifacts when needed:
-
-```bash
-atelier jobs list hello-world
-atelier jobs show hello-world <job-id>
-```
-
-If Codex asks for approval, the job becomes `waiting-for-prompt`. You can answer a single pending approval from the thread itself:
+If Codex asks for approval, reply in the same thread:
 
 ```bash
 atelier thread send hello-world --thread "$THREAD" --as alice approve
 ```
 
-Or use the explicit prompt commands when you need to inspect details or send structured input:
+Internal job, prompt, and raw-event artifacts are still inspectable as debug surfaces when needed:
 
 ```bash
-atelier prompts inbox
-atelier prompts show hello-world <prompt-id>
-atelier prompts respond hello-world <prompt-id> accept
+atelier debug jobs list hello-world
+atelier debug jobs show hello-world <job-id>
+atelier debug prompts inbox
+atelier debug events follow hello-world --thread "$THREAD"
 ```
 
-During a live dogfood run, Codex asked for file-change approval and then created this file:
-
-```text
-HELLO.md
-Hello and welcome to this hello-world project! This small space is here to make it easy to learn, try things out, and build confidence one simple step at a time.
-```
-
-When the job finishes:
+When the work finishes:
 
 ```bash
-atelier jobs list hello-world
 atelier sessions hello-world --thread "$THREAD"
 ```
 
@@ -219,7 +199,7 @@ That creates starter project files, registers the alias, and appends a gateway a
 
 A running daemon reads the registry from disk on each request. Projects created by the CLI or API are visible without restarting the daemon.
 
-### Send thread items through the API
+### Send and read thread items through the API
 
 Create a product-facing thread item:
 
@@ -229,16 +209,6 @@ curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world" \
   -d '{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello through the item API"}],"metadata":{"person":"alice","source":"api"}}]}'
 ```
 
-Submit a message to the managed work path when you want Codex to act on it:
-
-```bash
-curl -s http://127.0.0.1:8787/events/message \
-  -H 'Content-Type: application/json' \
-  -d "{\"gateway\":\"example-gateway\",\"project\":\"hello-world\",\"thread\":\"$THREAD\",\"person\":\"alice\",\"text\":\"Append one more friendly sentence to HELLO.md.\"}"
-```
-
-### Thread items, jobs, and prompts through the API
-
 Read the product-facing thread item stream with a stateless cursor:
 
 ```bash
@@ -247,36 +217,7 @@ curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world&after=0
 
 The response is OpenAI-style: `object = "list"`, `data[]`, `first_id`, `last_id`, and `has_more`. Use each item's numeric `sequence` as the next `after` value when polling from a CLI, local UI, or gateway publisher. Durable subscribers persist delivery cursors under `.atelier/threads/<thread-id>/delivery-cursors/` so daemon restarts do not duplicate delivered items.
 
-The raw event endpoint remains available for internal/debug inspection:
-
-```bash
-curl -s "http://127.0.0.1:8787/events?project=hello-world&thread=$THREAD&after=0"
-```
-
-Inspect current jobs and prompts when debugging:
-
-```bash
-curl -s http://127.0.0.1:8787/jobs
-curl -s http://127.0.0.1:8787/prompts
-```
-
-Respond to an approval prompt:
-
-```bash
-curl -s http://127.0.0.1:8787/prompts/respond \
-  -H 'Content-Type: application/json' \
-  -d '{"project":"hello-world","prompt_id":"prompt-0","decision":"accept"}'
-```
-
-### Generic gateway message event
-
-Gateway adapters can route external messages into project threads:
-
-```bash
-curl -s http://127.0.0.1:8787/events/message \
-  -H 'Content-Type: application/json' \
-  -d '{"gateway":"example-gateway","project":"hello-world","thread":"thread-example","person":"alice","text":"Run this task"}'
-```
+Internal runtime endpoints for raw events, jobs, prompts, and compatibility message ingestion are debug/operator surfaces. They remain useful for audits and adapter development, but normal clients should build on project/thread items.
 
 ## Bind gateway identities
 
@@ -298,13 +239,7 @@ atelier gateway bind-person \
   --person alice
 ```
 
-Then route by external identifiers:
-
-```bash
-curl -s http://127.0.0.1:8787/events/message \
-  -H 'Content-Type: application/json' \
-  -d '{"gateway":"example-gateway","external_thread":"external-thread","external_user":"external-user","text":"Run this task"}'
-```
+Gateway adapters route by external identifiers through the same project/thread item model used by CLI and local API clients.
 
 ## Telegram adapter
 
@@ -427,15 +362,15 @@ Continue a Codex session through Atelier:
 atelier continue hello-world --thread "$THREAD" --as alice --last "Continue the previous task"
 ```
 
-Recover idle or lost jobs:
+Inspect or recover idle/lost internal jobs only from the debug surface:
 
 ```bash
-atelier jobs recover hello-world <job-id>
-atelier jobs recover hello-world --all-idle
-atelier jobs recover hello-world --all-worker-lost
+atelier debug jobs recover hello-world <job-id>
+atelier debug jobs recover hello-world --all-idle
+atelier debug jobs recover hello-world --all-worker-lost
 ```
 
-Writer-slot checks reconcile persisted worker metadata before refusing new work. If a previous `running` or `waiting-for-prompt` job has a dead worker process, the daemon marks it `worker-lost` and lets the next `/events/message` or `/work` request start normally instead of queueing behind a stale owner. If a live job still owns the writer slot, the error points you to `/jobs` or `atelier jobs list <project>` so you can inspect the active job before recovering or waiting.
+Writer-slot checks reconcile persisted worker metadata before refusing new work. If stale runtime state blocks a project, Atelier should surface recovery/busy state in the thread; debug job commands are operator escape hatches, not the normal product workflow.
 
 ## Audit logs
 
