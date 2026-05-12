@@ -601,10 +601,11 @@ fn main() -> Result<()> {
                     atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt {
                         prompt_id,
                     } => {
-                        ensure_prompt_request_item(&resolved_project_path, &thread, &prompt_id)?;
+                        let input_request =
+                            ensure_prompt_request_item(&resolved_project_path, &thread, &prompt_id)?;
                         let decision = normalize_thread_prompt_decision(&prompt)?;
                         respond_to_prompt(&resolved_project_path, &prompt_id, &decision, None, None)?;
-                        append_prompt_response_item(
+                        let input_response = append_prompt_response_item(
                             &resolved_project_path,
                             &thread,
                             &person,
@@ -616,9 +617,13 @@ fn main() -> Result<()> {
                             &resolved_project_path,
                             &thread,
                         )?;
-                        println!("Status: prompt-answered");
-                        println!("Prompt: {prompt_id}");
-                        println!("Decision: {decision}");
+                        println!("Status: input-answered");
+                        println!("Item: {}", input_response.id);
+                        println!("Sequence: {}", input_response.sequence);
+                        if std::env::var_os("ATELIER_DEBUG_JOB_OUTPUT").is_some() {
+                            println!("Input request: {}", input_request.id);
+                            println!("Decision: {decision}");
+                        }
                     }
                     _ => {
                         let project_arg = project_path.to_string_lossy().to_string();
@@ -1232,10 +1237,50 @@ struct DaemonWorkRequest {
 
 #[derive(Debug, serde::Deserialize)]
 struct ThreadMessageRequest {
-    person: String,
-    text: String,
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    content: Vec<ThreadItemContentInput>,
+    #[serde(default)]
+    metadata: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    person: Option<String>,
+    #[serde(default)]
+    text: Option<String>,
     #[serde(default = "default_idle_timeout_seconds")]
     idle_timeout_seconds: u64,
+}
+
+impl ThreadMessageRequest {
+    fn into_runtime_parts(self) -> Result<(String, String, String)> {
+        let role = self.role.unwrap_or_else(|| "user".to_string());
+        if role != "user" {
+            anyhow::bail!("thread message endpoint only accepts role=user");
+        }
+        let person = self
+            .metadata
+            .get("person")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string)
+            .or(self.person)
+            .context("thread message requires metadata.person or person")?;
+        let text = self
+            .text
+            .or_else(|| {
+                self.content
+                    .iter()
+                    .find(|content| content.content_type == "input_text")
+                    .map(|content| content.text.clone())
+            })
+            .context("thread message requires text or input_text content")?;
+        let source = self
+            .metadata
+            .get("source")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("api")
+            .to_string();
+        Ok((person, text, source))
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1675,6 +1720,7 @@ fn start_daemon_work(request: DaemonWorkRequest) -> Result<serde_json::Value> {
         thread: request.thread,
         person: request.person,
         text: request.text,
+        source: "daemon".to_string(),
         idle_timeout_seconds: request.idle_timeout_seconds,
         audit_action: "work_started",
         gateway: None,
@@ -1694,6 +1740,7 @@ fn handle_gateway_message_event(
         thread,
         person,
         text: event.text,
+        source: event.gateway.clone(),
         idle_timeout_seconds: 300,
         audit_action: "message_started",
         gateway: Some(event.gateway),
@@ -1708,6 +1755,7 @@ struct ThreadMessageRuntimeRequest {
     thread: String,
     person: String,
     text: String,
+    source: String,
     idle_timeout_seconds: u64,
     audit_action: &'static str,
     gateway: Option<String>,
@@ -1730,7 +1778,7 @@ fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_j
             None,
             None,
         )?;
-        append_prompt_response_item(
+        let input_response = append_prompt_response_item(
             &request.project_path,
             &request.thread,
             &request.person,
@@ -1744,14 +1792,13 @@ fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_j
         )?;
         return Ok(with_thread_item_response_fields(
             serde_json::json!({
-                "status":"prompt-answered",
-                "prompt_id":pending.prompt_id,
+                "status":"input-answered",
                 "project":request.project,
                 "thread":request.thread,
                 "person":request.person,
                 "debug":{"prompt_id":pending.prompt_id,"job_id":pending.job_id}
             }),
-            &user_item,
+            &input_response,
         ));
     }
     let decision = atelier_core::thread_interaction::decide_thread_interaction(
@@ -1762,6 +1809,9 @@ fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_j
     match decision {
         atelier_core::thread_interaction::ThreadInteractionDecision::QueueForRunningJob {
             job_id,
+        }
+        | atelier_core::thread_interaction::ThreadInteractionDecision::BlockedByProject {
+            job_id,
         } => {
             let queued = atelier_core::thread_queue::queue_thread_message(
                 &request.project_path,
@@ -1769,30 +1819,60 @@ fn handle_thread_message(request: ThreadMessageRuntimeRequest) -> Result<serde_j
                 &request.person,
                 &request.text,
             )?;
+            let active_thread = active_job_thread(&request.project_path, &job_id)?
+                .unwrap_or_else(|| request.thread.clone());
+            let state_item = append_thread_state_item(
+                &request.project_path,
+                &request.thread,
+                "blocked",
+                &format!(
+                    "Project is active in another thread. Your message was saved and queued as #{}.",
+                    queued.sequence
+                ),
+                metadata_map(serde_json::json!({
+                    "state": "blocked",
+                    "queued_sequence": queued.sequence,
+                    "active_thread": active_thread,
+                    "debug": {"job_id": job_id}
+                })),
+            )?;
             Ok(with_thread_item_response_fields(
                 serde_json::json!({
-                    "status":"queued",
-                    "job_id":job_id,
-                    "queued_sequence":queued.sequence,
+                    "status":"blocked",
                     "project":request.project,
                     "thread":request.thread,
                     "person":request.person,
                     "debug":{"job_id":job_id}
                 }),
-                &user_item,
+                &state_item,
             ))
         }
         atelier_core::thread_interaction::ThreadInteractionDecision::AnswerPrompt { prompt_id } => {
+            let input_request =
+                ensure_prompt_request_item(&request.project_path, &request.thread, &prompt_id)?;
+            let decision = normalize_thread_prompt_decision(&request.text)?;
+            respond_to_prompt(&request.project_path, &prompt_id, &decision, None, None)?;
+            let input_response = append_prompt_response_item(
+                &request.project_path,
+                &request.thread,
+                &request.person,
+                &prompt_id,
+                &request.text,
+                &decision,
+            )?;
+            atelier_core::thread_pending::clear_pending_interaction(
+                &request.project_path,
+                &request.thread,
+            )?;
             Ok(with_thread_item_response_fields(
                 serde_json::json!({
-                    "status":"prompt-reply-required",
-                    "prompt_id":prompt_id,
+                    "status":"input-answered",
                     "project":request.project,
                     "thread":request.thread,
                     "person":request.person,
-                    "debug":{"prompt_id":prompt_id}
+                    "debug":{"prompt_id":prompt_id,"input_request_id":input_request.id}
                 }),
-                &user_item,
+                &input_response,
             ))
         }
         atelier_core::thread_interaction::ThreadInteractionDecision::ContinueSession { .. }
@@ -1841,8 +1921,8 @@ fn start_thread_message_job(
     }))?;
     let mut metadata_update = serde_json::Map::new();
     metadata_update.insert(
-        "job_id".to_string(),
-        serde_json::Value::String(job.id.clone()),
+        "debug".to_string(),
+        serde_json::json!({"job_id": job.id.clone()}),
     );
     let user_item = update_thread_item_metadata(
         &request.project_path,
@@ -1874,17 +1954,10 @@ fn append_runtime_user_message_item(
         "project".to_string(),
         serde_json::Value::String(request.project.clone()),
     );
-    if let Some(gateway) = &request.gateway {
-        metadata.insert(
-            "source".to_string(),
-            serde_json::Value::String(gateway.clone()),
-        );
-    } else {
-        metadata.insert(
-            "source".to_string(),
-            serde_json::Value::String("daemon".to_string()),
-        );
-    }
+    metadata.insert(
+        "source".to_string(),
+        serde_json::Value::String(request.source.clone()),
+    );
     if let Some(external_thread) = &request.external_thread {
         metadata.insert(
             "external_thread".to_string(),
@@ -1940,16 +2013,41 @@ fn with_thread_item_response_fields(
             serde_json::Value::String(item.id.clone()),
         );
         object.insert("sequence".to_string(), serde_json::json!(item.sequence));
+        object.insert(
+            "item".to_string(),
+            serde_json::to_value(item).unwrap_or_default(),
+        );
     }
     response
 }
 
-fn strip_top_level_job_fields(mut response: serde_json::Value) -> serde_json::Value {
-    if let Some(object) = response.as_object_mut() {
-        object.remove("job_id");
-        object.remove("job_dir");
+fn to_normal_thread_message_response(response: serde_json::Value) -> serde_json::Value {
+    let status = response
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("ok");
+    let item = response.get("item").cloned().unwrap_or_else(|| {
+        serde_json::json!({
+            "id": response.get("item_id").cloned().unwrap_or(serde_json::Value::Null),
+            "object": "conversation.item",
+            "sequence": response.get("sequence").cloned().unwrap_or(serde_json::Value::Null),
+            "type": "atelier.thread_state",
+            "role": "assistant",
+            "content": [],
+            "metadata": {}
+        })
+    });
+    let mut output = item;
+    if let Some(object) = output.as_object_mut() {
+        object.insert(
+            "status".to_string(),
+            serde_json::Value::String(status.to_string()),
+        );
+        if let Some(debug) = response.get("debug") {
+            object.insert("debug".to_string(), debug.clone());
+        }
     }
-    response
+    output
 }
 
 fn persist_telegram_job_origin(job_dir: &Path, external_thread: Option<&str>) -> Result<()> {
@@ -2327,19 +2425,22 @@ fn gateway_thread_message_json(
         query_value(query, "project").context("thread message endpoint requires project")?;
     let thread = thread_id_from_route(route, "/messages")?;
     let project_path = resolve_project_arg(Path::new(&project))?;
+    let idle_timeout_seconds = request.idle_timeout_seconds;
+    let (person, text, source) = request.into_runtime_parts()?;
     let response = handle_thread_message(ThreadMessageRuntimeRequest {
         project,
         project_path,
         thread: thread.to_string(),
-        person: request.person,
-        text: request.text,
-        idle_timeout_seconds: request.idle_timeout_seconds,
+        person,
+        text,
+        source,
+        idle_timeout_seconds,
         audit_action: "thread_message_started",
         gateway: None,
         external_thread: None,
         external_user: None,
     })?;
-    Ok(strip_top_level_job_fields(response))
+    Ok(to_normal_thread_message_response(response))
 }
 
 fn gateway_create_thread_items_json(
@@ -2494,24 +2595,29 @@ fn normalize_thread_prompt_decision(text: &str) -> Result<String> {
     }
 }
 
-fn ensure_prompt_request_item(project_path: &Path, thread: &str, prompt_id: &str) -> Result<()> {
+fn ensure_prompt_request_item(
+    project_path: &Path,
+    thread: &str,
+    prompt_id: &str,
+) -> Result<atelier_core::thread_items::ThreadItem> {
     let (_job_dir, prompt) = find_prompt(project_path, prompt_id)?;
     let existing = atelier_core::thread_items::read_thread_items(project_path, thread, 0)?;
-    if existing.iter().any(|item| {
-        item.item_type == "atelier.approval_request"
+    if let Some(item) = existing.into_iter().find(|item| {
+        item.item_type == "atelier.input_request"
             && item
                 .metadata
-                .get("prompt_id")
+                .get("debug")
+                .and_then(|debug| debug.get("prompt_id"))
                 .and_then(serde_json::Value::as_str)
                 == Some(prompt_id)
     }) {
-        return Ok(());
+        return Ok(item);
     }
     let job_id = prompt_job_id(project_path, prompt_id)?;
     let item = atelier_core::thread_items::append_thread_item(
         project_path,
         thread,
-        "atelier.approval_request",
+        "atelier.input_request",
         "assistant",
         vec![atelier_core::thread_items::ThreadItemContent {
             content_type: "output_text".to_string(),
@@ -2519,24 +2625,28 @@ fn ensure_prompt_request_item(project_path: &Path, thread: &str, prompt_id: &str
         }],
         metadata_map(serde_json::json!({
             "source": "codex",
-            "job_id": job_id,
-            "prompt_id": prompt.id,
-            "method": prompt.method,
-            "choices": prompt.available_decisions
+            "input_kind": "approval",
+            "choices": prompt.available_decisions,
+            "debug": {
+                "job_id": job_id,
+                "prompt_id": prompt.id,
+                "method": prompt.method,
+                "params": prompt.params
+            }
         })),
     )?;
     atelier_core::thread_pending::write_pending_interaction(
         project_path,
         thread,
         &atelier_core::thread_pending::PendingThreadInteraction {
-            kind: "approval_request".to_string(),
-            item_id: item.id,
+            kind: "input_request".to_string(),
+            item_id: item.id.clone(),
             job_id,
             prompt_id: prompt.id,
             choices: prompt.available_decisions,
         },
     )?;
-    Ok(())
+    Ok(item)
 }
 
 fn append_prompt_response_item(
@@ -2546,12 +2656,12 @@ fn append_prompt_response_item(
     prompt_id: &str,
     reply: &str,
     decision: &str,
-) -> Result<()> {
+) -> Result<atelier_core::thread_items::ThreadItem> {
     let job_id = prompt_job_id(project_path, prompt_id)?;
     atelier_core::thread_items::append_thread_item(
         project_path,
         thread,
-        "atelier.approval_response",
+        "atelier.input_response",
         "user",
         vec![atelier_core::thread_items::ThreadItemContent {
             content_type: "input_text".to_string(),
@@ -2560,17 +2670,58 @@ fn append_prompt_response_item(
         metadata_map(serde_json::json!({
             "source": "thread",
             "person": person,
-            "job_id": job_id,
-            "prompt_id": prompt_id,
-            "decision": decision
+            "input_kind": "approval",
+            "decision": decision,
+            "debug": {
+                "job_id": job_id,
+                "prompt_id": prompt_id
+            }
         })),
-    )?;
-    Ok(())
+    )
 }
 
 fn prompt_job_id(project_path: &Path, prompt_id: &str) -> Result<String> {
     let (job_dir, _prompt) = find_prompt(project_path, prompt_id)?;
     Ok(job_id_from_dir(&job_dir))
+}
+
+fn active_job_thread(project_path: &Path, job_id: &str) -> Result<Option<String>> {
+    let status_path = project_path
+        .join(".atelier/jobs")
+        .join(job_id)
+        .join("status.json");
+    let content = match std::fs::read_to_string(&status_path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("read {}", status_path.display())),
+    };
+    let status: atelier_core::job::JobStatus = serde_json::from_str(&content)
+        .with_context(|| format!("parse {}", status_path.display()))?;
+    Ok(Some(status.thread_id))
+}
+
+fn append_thread_state_item(
+    project_path: &Path,
+    thread: &str,
+    state: &str,
+    text: &str,
+    mut metadata: serde_json::Map<String, serde_json::Value>,
+) -> Result<atelier_core::thread_items::ThreadItem> {
+    metadata.insert(
+        "state".to_string(),
+        serde_json::Value::String(state.to_string()),
+    );
+    atelier_core::thread_items::append_thread_item(
+        project_path,
+        thread,
+        "atelier.thread_state",
+        "assistant",
+        vec![atelier_core::thread_items::ThreadItemContent {
+            content_type: "output_text".to_string(),
+            text: text.to_string(),
+        }],
+        metadata,
+    )
 }
 
 fn metadata_map(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
@@ -3104,8 +3255,8 @@ fn publish_telegram_bounded_progress(job_dir: &Path, thread: &str) -> Result<()>
 fn telegram_deliverable_item(item: &atelier_core::thread_items::ThreadItem) -> bool {
     match item.item_type.as_str() {
         "message" => item.role == "assistant",
-        "atelier.approval_request" | "atelier.recovery_notice" => true,
-        "atelier.approval_response" => false,
+        "atelier.input_request" | "atelier.thread_state" | "atelier.recovery_notice" => true,
+        "atelier.input_response" => false,
         _ => false,
     }
 }

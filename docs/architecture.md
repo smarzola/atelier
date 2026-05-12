@@ -180,7 +180,7 @@ This should be an explicit wrapper that launches Codex with an initial context m
 
 Atelier has its own durable thread model. An Atelier thread represents one ongoing workstream in a project or the home workspace. It is the user-facing continuity object that gateway topics, CLI sessions, and Codex sessions attach to.
 
-Current design direction: an Atelier thread is a project-scoped OpenAI-style conversation. The product-facing interface is an ordered stream of conversation items in `.atelier/threads/<thread-id>/items.jsonl`. Jobs, Codex prompts, protocol logs, and raw `events.jsonl` entries are internal/debug artifacts linked from item metadata. See `docs/decisions/0012-openai-style-thread-items.md`, `docs/thread-conversation-items.md`, and `docs/plans/0007-openai-style-thread-items.md`.
+Current design direction: an Atelier thread is a project-scoped OpenAI-style conversation. The product-facing interface is an ordered stream of conversation messages/items in `.atelier/threads/<thread-id>/items.jsonl`. Jobs, Codex prompts, protocol logs, and raw `events.jsonl` entries are internal/debug artifacts linked from item metadata. See `docs/decisions/0012-openai-style-thread-items.md`, `docs/decisions/0013-message-centric-openai-style-api.md`, `docs/thread-conversation-items.md`, `docs/design/message-centric-conversation-api.md`, and `docs/plans/0008-message-centric-conversation-api.md`.
 
 Codex stores local transcripts and supports native resume commands:
 

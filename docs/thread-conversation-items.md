@@ -74,16 +74,15 @@ Each line is one `conversation.item`-like object.
 ### `pending.json`
 
 Optional state for currently pending thread-level interaction:
-
 ```json
 {
-  "kind": "approval_request",
-  "item_id": "item-approval-example",
-  "job_id": "job-example",
-  "prompt_id": "prompt-example",
+  "kind": "input_request",
+  "item_id": "item-input-example",
   "choices": ["approve", "decline", "cancel"]
 }
 ```
+
+Internal job and prompt ids may be present in debug metadata, but normal clients should key off the thread item id and reply in the same thread.
 
 ### `events.jsonl`
 
@@ -150,14 +149,14 @@ output_text
 Use namespaced types when Atelier must expose local orchestration semantics:
 
 ```text
-atelier.approval_request
-atelier.approval_response
 atelier.input_request
 atelier.input_response
 atelier.thread_state
 atelier.recovery_notice
 atelier.debug_event
 ```
+
+Earlier design notes used `atelier.approval_request` and `atelier.approval_response`. Those names are superseded by `atelier.input_request` and `atelier.input_response`, because Codex app-server prompts include approvals, MCP elicitations, and other human input requests.
 
 Most user-facing output can still be rendered as `message` with `role = assistant`. The `atelier.*` types are for semantically meaningful UI behavior.
 
@@ -267,13 +266,64 @@ The `after` cursor is a numeric sequence for local file-first efficiency. Item i
 
 Implemented status: the daemon currently supports `GET /threads/{thread_id}`, `POST /threads/{thread_id}/items`, and `GET /threads/{thread_id}/items`. Single-item retrieval remains a planned follow-up.
 
+### Send a message for processing
+
+```http
+POST /threads/{thread_id}/messages?project=example-project
+```
+
+This endpoint appends a user message and runs the normal thread interaction decision path: answer pending input, surface project busy state, or start Codex work.
+
+Preferred request:
+
+```json
+{
+  "role": "user",
+  "content": [
+    { "type": "input_text", "text": "Update the README." }
+  ],
+  "metadata": {
+    "person": "alice",
+    "source": "api"
+  }
+}
+```
+
+Response:
+
+```json
+{
+  "id": "item-example",
+  "object": "conversation.item",
+  "sequence": 43,
+  "type": "message",
+  "role": "user",
+  "status": "started",
+  "content": [
+    { "type": "input_text", "text": "Update the README." }
+  ],
+  "metadata": {
+    "project": "example-project",
+    "thread": "thread-example",
+    "person": "alice",
+    "source": "api"
+  },
+  "debug": {
+    "job_id": "job-example"
+  },
+  "created_at": 1770000000
+}
+```
+
+Normal responses must not expose `job_id`, `job_dir`, `prompt_id`, or raw event names at top level. Debug identifiers belong under `debug` or `metadata.debug` only.
+
 ### Retrieve one item
 
 ```http
 GET /threads/{thread_id}/items/{item_id}?project=example-project
 ```
 
-## Approval flow
+## Input and approval flow
 
 ### 1. User asks for work
 
@@ -290,13 +340,12 @@ Inbound item:
 }
 ```
 
-### 2. Codex requests approval
+### 2. Codex requests input or approval
 
 Atelier stores the Codex app-server prompt internally and appends:
-
 ```json
 {
-  "type": "atelier.approval_request",
+  "type": "atelier.input_request",
   "role": "assistant",
   "content": [
     {
@@ -306,8 +355,10 @@ Atelier stores the Codex app-server prompt internally and appends:
   ],
   "metadata": {
     "choices": "approve,decline,cancel",
-    "job_id": "job-example",
-    "prompt_id": "prompt-example",
+    "debug": {
+      "job_id": "job-example",
+      "prompt_id": "prompt-example"
+    },
     "method": "item/fileChange/requestApproval"
   }
 }
@@ -330,18 +381,20 @@ Inbound item:
 }
 ```
 
-Atelier detects pending approval state, validates the reply, writes the internal prompt response, and appends:
+Atelier detects pending input state, validates the reply, writes the internal prompt response, and appends:
 
 ```json
 {
-  "type": "atelier.approval_response",
+  "type": "atelier.input_response",
   "role": "user",
   "content": [
     { "type": "input_text", "text": "approve" }
   ],
   "metadata": {
     "decision": "accept",
-    "prompt_id": "prompt-example"
+    "debug": {
+      "prompt_id": "prompt-example"
+    }
   }
 }
 ```
@@ -350,9 +403,9 @@ No normal user-facing path requires the job id or prompt id.
 
 ## Gateway behavior
 
-Gateway inbound messages map to `POST /threads/{thread_id}/items`.
+Gateway inbound messages map to `POST /threads/{thread_id}/messages` when the message should enter the managed Atelier/Codex interaction path, or `POST /threads/{thread_id}/items` when an adapter only needs to append an inert/audit item.
 
-Gateway outbound delivery polls the thread item stream using a delivery cursor. Gateways render assistant messages and `atelier.approval_request` items to the external channel, and keep raw job/event names out of normal user-facing messages.
+Gateway outbound delivery polls the thread item stream using a delivery cursor. Gateways render assistant messages, `atelier.input_request`, and relevant `atelier.thread_state` items to the external channel, and keep raw job/event names out of normal user-facing messages.
 
 Telegram example:
 
@@ -361,7 +414,7 @@ chat:1000:topic:77 -> project=example-project, thread=thread-example
 from:2000 -> person=alice
 ```
 
-Telegram inbound text becomes a user message item. Telegram outbound delivery renders assistant/approval/final items from the same item stream.
+Telegram inbound text becomes a user message item. Telegram outbound delivery renders assistant, input-request, thread-state, and final items from the same item stream.
 
 ## CLI behavior
 
@@ -392,7 +445,7 @@ atelier thread follow example-project --thread thread-example --debug
 
 - Keep `/events/message` as a compatibility alias for item creation.
 - Keep `/events` as a debug endpoint while introducing `/threads/{thread}/items`.
-- Convert Codex app-server prompt records into approval request items.
+- Convert Codex app-server prompt records into input request items.
 - Make gateway delivery consume items instead of raw events.
 - Update docs so thread items are introduced before jobs/prompts.
 

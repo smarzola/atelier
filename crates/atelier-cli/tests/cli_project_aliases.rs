@@ -11,6 +11,7 @@ fn work_dry_run_accepts_registered_project_alias() {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "work",
             "example-project",
@@ -80,6 +81,7 @@ fn jobs_prompts_and_sessions_accept_registered_project_aliases() {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args(["jobs", "list", "example-project"])
         .assert()
         .success()
@@ -88,6 +90,7 @@ fn jobs_prompts_and_sessions_accept_registered_project_aliases() {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args(["prompts", "list", "example-project"])
         .assert()
         .success()
@@ -96,6 +99,7 @@ fn jobs_prompts_and_sessions_accept_registered_project_aliases() {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args(["sessions", "example-project", "--thread", &thread_id])
         .assert()
         .success()
@@ -106,6 +110,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "project",
             "init",
@@ -118,6 +123,7 @@ fn init_and_register(temp: &tempfile::TempDir, project: &std::path::Path) {
     Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "projects",
             "add",
@@ -132,6 +138,7 @@ fn create_thread(temp: &tempfile::TempDir, project: &std::path::Path) -> String 
     let output = Command::cargo_bin("atelier")
         .expect("atelier binary")
         .env("HOME", temp.path())
+        .env("ATELIER_HOME", temp.path().join(".atelier"))
         .args([
             "thread",
             "new",
