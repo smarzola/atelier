@@ -1921,8 +1921,8 @@ fn start_thread_message_job(
     }))?;
     let mut metadata_update = serde_json::Map::new();
     metadata_update.insert(
-        "job_id".to_string(),
-        serde_json::Value::String(job.id.clone()),
+        "debug".to_string(),
+        serde_json::json!({"job_id": job.id.clone()}),
     );
     let user_item = update_thread_item_metadata(
         &request.project_path,

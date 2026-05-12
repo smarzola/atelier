@@ -382,7 +382,8 @@ fn daemon_message_endpoint_starts_after_dead_worker_without_waiting_for_supervis
     assert_eq!(
         user_item
             .metadata
-            .get("job_id")
+            .get("debug")
+            .and_then(|value| value.get("job_id"))
             .and_then(|value| value.as_str()),
         response["job_id"].as_str()
     );
