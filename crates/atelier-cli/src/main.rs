@@ -68,12 +68,19 @@ enum Command {
         #[command(subcommand)]
         command: GatewayCommand,
     },
+    /// Inspect internal runtime artifacts for debugging.
+    Debug {
+        #[command(subcommand)]
+        command: DebugCommand,
+    },
     /// Manage Codex app-server pending prompts.
+    #[command(hide = true)]
     Prompts {
         #[command(subcommand)]
         command: PromptsCommand,
     },
     /// Inspect Atelier jobs.
+    #[command(hide = true)]
     Jobs {
         #[command(subcommand)]
         command: JobsCommand,
@@ -91,6 +98,7 @@ enum Command {
     /// Show a global dashboard across registered projects.
     Status,
     /// Build or run a Codex work invocation.
+    #[command(hide = true)]
     Work {
         /// Project folder path.
         project_path: PathBuf,
@@ -380,6 +388,40 @@ enum JobsCommand {
 }
 
 #[derive(Debug, Subcommand)]
+enum DebugCommand {
+    /// Inspect internal job artifacts.
+    Jobs {
+        #[command(subcommand)]
+        command: JobsCommand,
+    },
+    /// Inspect internal Codex prompt artifacts.
+    Prompts {
+        #[command(subcommand)]
+        command: PromptsCommand,
+    },
+    /// Inspect raw runtime events.
+    Events {
+        #[command(subcommand)]
+        command: DebugEventsCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum DebugEventsCommand {
+    /// Follow raw runtime events for one thread.
+    Follow {
+        /// Project folder path or registered project alias.
+        project_path: PathBuf,
+        /// Atelier thread id.
+        #[arg(long)]
+        thread: String,
+        /// Only show events after this sequence number.
+        #[arg(long, default_value_t = 0)]
+        after: u64,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 enum SkillCommand {
     /// Add a skill to a project using Codex-native `.agents/skills` layout.
     Add {
@@ -453,14 +495,14 @@ enum ThreadCommand {
         /// Message text.
         prompt: String,
     },
-    /// Print events from an Atelier thread.
+    /// Print conversation items from an Atelier thread.
     Follow {
         /// Project folder path or registered project alias.
         project_path: PathBuf,
         /// Atelier thread id.
         #[arg(long)]
         thread: String,
-        /// Only show events after this sequence number.
+        /// Only show conversation items after this sequence number.
         #[arg(long, default_value_t = 0)]
         after: u64,
     },
@@ -728,106 +770,28 @@ fn main() -> Result<()> {
                 }
             }
         },
-        Command::Prompts { command } => match command {
-            PromptsCommand::Inbox => {
-                print_prompt_inbox()?;
-            }
-            PromptsCommand::List { project_path } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                for (job_id, prompt) in list_prompts(&project_path)? {
-                    println!(
-                        "{}\t{:?}\t{}\t{}",
-                        prompt.id, prompt.status, prompt.summary, job_id
-                    );
-                }
-            }
-            PromptsCommand::Show {
-                project_path,
-                prompt_id,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                let (_job_dir, prompt) = find_prompt(&project_path, &prompt_id)?;
-                println!("Prompt: {}", prompt.id);
-                println!("Status: {:?}", prompt.status);
-                println!("Method: {}", prompt.method);
-                println!("Summary: {}", prompt.summary);
-                if !prompt.available_decisions.is_empty() {
-                    println!(
-                        "Decision options: {}",
-                        prompt.available_decisions.join(", ")
-                    );
-                }
-            }
-            PromptsCommand::Respond {
-                project_path,
-                prompt_id,
-                text,
-                json,
-                decision,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
-                let response = build_prompt_response(&prompt, &decision, text, json)?;
-                prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
-                let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
-                std::fs::write(
-                    prompt_path,
-                    serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
-                )?;
-                let responses_dir = job_dir.join("responses");
-                std::fs::create_dir_all(&responses_dir)?;
-                std::fs::write(
-                    responses_dir.join(format!("{}.json", prompt.id)),
-                    serde_json::to_string_pretty(&response)?,
-                )?;
-                println!("Recorded response {decision} for {prompt_id}");
-            }
-        },
-        Command::Jobs { command } => match command {
-            JobsCommand::List { project_path } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                for status in list_jobs(&project_path)? {
-                    println!("{}\t{}\t{}", status.id, status.status, status.thread_id);
-                }
-            }
-            JobsCommand::Show {
-                project_path,
-                job_id,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                show_job(&project_path, &job_id)?;
-            }
-            JobsCommand::Recover {
-                project_path,
-                job_id,
-                all_idle,
-                all_worker_lost,
-                idle_timeout_seconds,
-            } => {
-                let project_path = resolve_project_arg(&project_path)?;
-                if all_idle || all_worker_lost {
-                    let wanted_status = if all_idle {
-                        "idle-timeout"
-                    } else {
-                        "worker-lost"
-                    };
-                    let mut recovered = 0usize;
-                    for status in list_jobs(&project_path)? {
-                        if status.status == wanted_status {
-                            recover_job(&project_path, &status.id, idle_timeout_seconds)?;
-                            println!("Recovered job: {}", status.id);
-                            recovered += 1;
-                        }
+        Command::Debug { command } => match command {
+            DebugCommand::Jobs { command } => handle_jobs_command(command)?,
+            DebugCommand::Prompts { command } => handle_prompts_command(command)?,
+            DebugCommand::Events { command } => match command {
+                DebugEventsCommand::Follow {
+                    project_path,
+                    thread,
+                    after,
+                } => {
+                    let project_path = resolve_project_arg(&project_path)?;
+                    for event in atelier_core::thread_events::read_thread_events(
+                        &project_path,
+                        &thread,
+                        after,
+                    )? {
+                        println!("{}\t{}\t{}", event.sequence, event.kind, event.payload);
                     }
-                    println!("Recovered {recovered} jobs");
-                } else {
-                    let job_id = job_id
-                        .context("recover requires <job-id>, --all-idle, or --all-worker-lost")?;
-                    recover_job(&project_path, &job_id, idle_timeout_seconds)?;
-                    println!("Recovered job: {job_id}");
                 }
-            }
+            },
         },
+        Command::Prompts { command } => handle_prompts_command(command)?,
+        Command::Jobs { command } => handle_jobs_command(command)?,
         Command::Skill { command } => match command {
             SkillCommand::Add { command } => match command {
                 SkillAddCommand::Project {
@@ -1048,6 +1012,114 @@ fn write_home_skill(path: &Path, name: &str, description: &str) -> Result<()> {
     .context("write home skill")
 }
 
+fn handle_prompts_command(command: PromptsCommand) -> Result<()> {
+    match command {
+        PromptsCommand::Inbox => {
+            print_prompt_inbox()?;
+        }
+        PromptsCommand::List { project_path } => {
+            let project_path = resolve_project_arg(&project_path)?;
+            for (job_id, prompt) in list_prompts(&project_path)? {
+                println!(
+                    "{}\t{:?}\t{}\t{}",
+                    prompt.id, prompt.status, prompt.summary, job_id
+                );
+            }
+        }
+        PromptsCommand::Show {
+            project_path,
+            prompt_id,
+        } => {
+            let project_path = resolve_project_arg(&project_path)?;
+            let (_job_dir, prompt) = find_prompt(&project_path, &prompt_id)?;
+            println!("Prompt: {}", prompt.id);
+            println!("Status: {:?}", prompt.status);
+            println!("Method: {}", prompt.method);
+            println!("Summary: {}", prompt.summary);
+            if !prompt.available_decisions.is_empty() {
+                println!(
+                    "Decision options: {}",
+                    prompt.available_decisions.join(", ")
+                );
+            }
+        }
+        PromptsCommand::Respond {
+            project_path,
+            prompt_id,
+            text,
+            json,
+            decision,
+        } => {
+            let project_path = resolve_project_arg(&project_path)?;
+            let (job_dir, mut prompt) = find_prompt(&project_path, &prompt_id)?;
+            let response = build_prompt_response(&prompt, &decision, text, json)?;
+            prompt.status = atelier_core::codex_app_server::PendingPromptStatus::Resolved;
+            let prompt_path = job_dir.join("prompts").join(format!("{}.json", prompt.id));
+            std::fs::write(
+                prompt_path,
+                serde_json::to_string_pretty(&prompt).context("serialize prompt")?,
+            )?;
+            let responses_dir = job_dir.join("responses");
+            std::fs::create_dir_all(&responses_dir)?;
+            std::fs::write(
+                responses_dir.join(format!("{}.json", prompt.id)),
+                serde_json::to_string_pretty(&response)?,
+            )?;
+            println!("Recorded response {decision} for {prompt_id}");
+        }
+    }
+    Ok(())
+}
+
+fn handle_jobs_command(command: JobsCommand) -> Result<()> {
+    match command {
+        JobsCommand::List { project_path } => {
+            let project_path = resolve_project_arg(&project_path)?;
+            for status in list_jobs(&project_path)? {
+                println!("{}\t{}\t{}", status.id, status.status, status.thread_id);
+            }
+        }
+        JobsCommand::Show {
+            project_path,
+            job_id,
+        } => {
+            let project_path = resolve_project_arg(&project_path)?;
+            show_job(&project_path, &job_id)?;
+        }
+        JobsCommand::Recover {
+            project_path,
+            job_id,
+            all_idle,
+            all_worker_lost,
+            idle_timeout_seconds,
+        } => {
+            let project_path = resolve_project_arg(&project_path)?;
+            if all_idle || all_worker_lost {
+                let wanted_status = if all_idle {
+                    "idle-timeout"
+                } else {
+                    "worker-lost"
+                };
+                let mut recovered = 0usize;
+                for status in list_jobs(&project_path)? {
+                    if status.status == wanted_status {
+                        recover_job(&project_path, &status.id, idle_timeout_seconds)?;
+                        println!("Recovered job: {}", status.id);
+                        recovered += 1;
+                    }
+                }
+                println!("Recovered {recovered} jobs");
+            } else {
+                let job_id = job_id
+                    .context("recover requires <job-id>, --all-idle, or --all-worker-lost")?;
+                recover_job(&project_path, &job_id, idle_timeout_seconds)?;
+                println!("Recovered job: {job_id}");
+            }
+        }
+    }
+    Ok(())
+}
+
 fn print_prompt_inbox() -> Result<()> {
     for project in atelier_core::registry::list_projects()? {
         for (job_id, prompt) in list_prompts(&project.path)? {
@@ -1152,6 +1224,14 @@ struct GatewayProjectCreateRequest {
 struct DaemonWorkRequest {
     project: String,
     thread: String,
+    person: String,
+    text: String,
+    #[serde(default = "default_idle_timeout_seconds")]
+    idle_timeout_seconds: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ThreadMessageRequest {
     person: String,
     text: String,
     #[serde(default = "default_idle_timeout_seconds")]
@@ -1321,6 +1401,10 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         ("GET", "/events") => gateway_events_json(query)?,
         ("GET", route) if is_thread_route(route) => gateway_thread_json(route, query)?,
         ("GET", route) if is_thread_items_route(route) => gateway_thread_items_json(route, query)?,
+        ("POST", route) if is_thread_messages_route(route) => {
+            let request: ThreadMessageRequest = serde_json::from_str(&body)?;
+            gateway_thread_message_json(route, query, request)?
+        }
         ("POST", route) if is_thread_items_route(route) => {
             let request: ThreadItemCreateRequest = serde_json::from_str(&body)?;
             gateway_create_thread_items_json(route, query, request)?
@@ -1860,6 +1944,14 @@ fn with_thread_item_response_fields(
     response
 }
 
+fn strip_top_level_job_fields(mut response: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = response.as_object_mut() {
+        object.remove("job_id");
+        object.remove("job_dir");
+    }
+    response
+}
+
 fn persist_telegram_job_origin(job_dir: &Path, external_thread: Option<&str>) -> Result<()> {
     let Some(external_thread) = external_thread else {
         return Ok(());
@@ -2176,6 +2268,14 @@ fn is_thread_items_route(route: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn is_thread_messages_route(route: &str) -> bool {
+    route
+        .strip_prefix("/threads/")
+        .and_then(|tail| tail.strip_suffix("/messages"))
+        .map(|thread| !thread.is_empty() && !thread.contains('/'))
+        .unwrap_or(false)
+}
+
 fn thread_id_from_route<'a>(route: &'a str, suffix: &str) -> Result<&'a str> {
     route
         .strip_prefix("/threads/")
@@ -2216,6 +2316,30 @@ fn gateway_thread_items_json(route: &str, query: &str) -> Result<serde_json::Val
     let project_path = resolve_project_arg(Path::new(&project))?;
     let items = atelier_core::thread_items::read_thread_items(&project_path, thread, after)?;
     Ok(thread_item_list_json(items))
+}
+
+fn gateway_thread_message_json(
+    route: &str,
+    query: &str,
+    request: ThreadMessageRequest,
+) -> Result<serde_json::Value> {
+    let project =
+        query_value(query, "project").context("thread message endpoint requires project")?;
+    let thread = thread_id_from_route(route, "/messages")?;
+    let project_path = resolve_project_arg(Path::new(&project))?;
+    let response = handle_thread_message(ThreadMessageRuntimeRequest {
+        project,
+        project_path,
+        thread: thread.to_string(),
+        person: request.person,
+        text: request.text,
+        idle_timeout_seconds: request.idle_timeout_seconds,
+        audit_action: "thread_message_started",
+        gateway: None,
+        external_thread: None,
+        external_user: None,
+    })?;
+    Ok(strip_top_level_job_fields(response))
 }
 
 fn gateway_create_thread_items_json(

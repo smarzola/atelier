@@ -8,7 +8,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 #[test]
-fn daemon_work_endpoint_starts_work() {
+fn daemon_thread_message_endpoint_starts_work_without_top_level_job_fields() {
     let temp = tempfile::tempdir().expect("tempdir");
     let project = temp.path().join("example-project");
     init_and_register(&temp, &project);
@@ -26,20 +26,34 @@ fn daemon_work_endpoint_starts_work() {
 
     let response = post_json(
         port,
-        "/work",
-        &format!(
-            r#"{{"project":"example-project","thread":"{}","person":"alice","text":"Run daemon task"}}"#,
-            thread_id
-        ),
+        &format!("/threads/{thread_id}/messages?project=example-project"),
+        r#"{"person":"alice","text":"Run daemon task"}"#,
     );
     assert_eq!(response["status"], "started");
     assert_eq!(response["project"], "example-project");
     assert_eq!(response["thread"], thread_id);
     assert_eq!(response["person"], "alice");
-    wait_for_job_success(&project, response["job_id"].as_str().expect("job id"));
+    assert!(
+        response.get("job_id").is_none(),
+        "normal thread message response must not expose top-level job_id: {response}"
+    );
+    assert!(
+        response.get("job_dir").is_none(),
+        "normal thread message response must not expose top-level job_dir: {response}"
+    );
+    let job_id = response["debug"]["job_id"].as_str().expect("debug job id");
+    wait_for_job_success(&project, job_id);
 
-    let audit_event = latest_audit_event(&temp, "work_started");
-    assert_eq!(audit_event["action"], "work_started");
+    let listed = get_json(
+        port,
+        &format!("/threads/{thread_id}/items?project=example-project&after=0"),
+    );
+    assert_eq!(listed["data"][0]["type"], "message");
+    assert_eq!(listed["data"][0]["role"], "user");
+    assert_eq!(listed["data"][0]["content"][0]["text"], "Run daemon task");
+
+    let audit_event = latest_audit_event(&temp, "thread_message_started");
+    assert_eq!(audit_event["action"], "thread_message_started");
     assert_eq!(audit_event["project"], "example-project");
     assert_eq!(audit_event["person"], "alice");
     assert_eq!(audit_event["result"], "started");
