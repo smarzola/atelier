@@ -209,6 +209,14 @@ curl -s "http://127.0.0.1:8787/threads/$THREAD/items?project=hello-world" \
   -d '{"items":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello through the item API"}],"metadata":{"person":"alice","source":"api"}}]}'
 ```
 
+When you want Codex to act on a message, use the thread-native message endpoint. The response is item-facing (`status`, `item_id`, `sequence`) with job ids only under `debug` metadata:
+
+```bash
+curl -s "http://127.0.0.1:8787/threads/$THREAD/messages?project=hello-world" \
+  -H 'Content-Type: application/json' \
+  -d '{"person":"alice","text":"Append one more friendly sentence to HELLO.md."}'
+```
+
 Read the product-facing thread item stream with a stateless cursor:
 
 ```bash

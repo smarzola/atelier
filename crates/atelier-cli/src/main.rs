@@ -1231,6 +1231,14 @@ struct DaemonWorkRequest {
 }
 
 #[derive(Debug, serde::Deserialize)]
+struct ThreadMessageRequest {
+    person: String,
+    text: String,
+    #[serde(default = "default_idle_timeout_seconds")]
+    idle_timeout_seconds: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
 struct ThreadItemCreateRequest {
     items: Vec<ThreadItemCreateInput>,
 }
@@ -1393,6 +1401,10 @@ fn handle_gateway_stream(stream: &mut TcpStream, auth: &GatewayAuth) -> Result<(
         ("GET", "/events") => gateway_events_json(query)?,
         ("GET", route) if is_thread_route(route) => gateway_thread_json(route, query)?,
         ("GET", route) if is_thread_items_route(route) => gateway_thread_items_json(route, query)?,
+        ("POST", route) if is_thread_messages_route(route) => {
+            let request: ThreadMessageRequest = serde_json::from_str(&body)?;
+            gateway_thread_message_json(route, query, request)?
+        }
         ("POST", route) if is_thread_items_route(route) => {
             let request: ThreadItemCreateRequest = serde_json::from_str(&body)?;
             gateway_create_thread_items_json(route, query, request)?
@@ -1932,6 +1944,14 @@ fn with_thread_item_response_fields(
     response
 }
 
+fn strip_top_level_job_fields(mut response: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = response.as_object_mut() {
+        object.remove("job_id");
+        object.remove("job_dir");
+    }
+    response
+}
+
 fn persist_telegram_job_origin(job_dir: &Path, external_thread: Option<&str>) -> Result<()> {
     let Some(external_thread) = external_thread else {
         return Ok(());
@@ -2248,6 +2268,14 @@ fn is_thread_items_route(route: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn is_thread_messages_route(route: &str) -> bool {
+    route
+        .strip_prefix("/threads/")
+        .and_then(|tail| tail.strip_suffix("/messages"))
+        .map(|thread| !thread.is_empty() && !thread.contains('/'))
+        .unwrap_or(false)
+}
+
 fn thread_id_from_route<'a>(route: &'a str, suffix: &str) -> Result<&'a str> {
     route
         .strip_prefix("/threads/")
@@ -2288,6 +2316,30 @@ fn gateway_thread_items_json(route: &str, query: &str) -> Result<serde_json::Val
     let project_path = resolve_project_arg(Path::new(&project))?;
     let items = atelier_core::thread_items::read_thread_items(&project_path, thread, after)?;
     Ok(thread_item_list_json(items))
+}
+
+fn gateway_thread_message_json(
+    route: &str,
+    query: &str,
+    request: ThreadMessageRequest,
+) -> Result<serde_json::Value> {
+    let project =
+        query_value(query, "project").context("thread message endpoint requires project")?;
+    let thread = thread_id_from_route(route, "/messages")?;
+    let project_path = resolve_project_arg(Path::new(&project))?;
+    let response = handle_thread_message(ThreadMessageRuntimeRequest {
+        project,
+        project_path,
+        thread: thread.to_string(),
+        person: request.person,
+        text: request.text,
+        idle_timeout_seconds: request.idle_timeout_seconds,
+        audit_action: "thread_message_started",
+        gateway: None,
+        external_thread: None,
+        external_user: None,
+    })?;
+    Ok(strip_top_level_job_fields(response))
 }
 
 fn gateway_create_thread_items_json(
